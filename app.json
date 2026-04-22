@@ -1,0 +1,23 @@
+{
+  "expo": {
+    "name": "Voda",
+    "slug": "voda-mobile-app",
+    "scheme": "voda",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.ppiyakworld.voda"
+    },
+    "android": {
+      "package": "com.ppiyakworld.voda",
+      "usesCleartextTraffic": true
+    },
+    "androidStatusBar": {
+      "backgroundColor": "#ffffff",
+      "barStyle": "dark-content",
+      "translucent": false
+    }
+  }
+}
