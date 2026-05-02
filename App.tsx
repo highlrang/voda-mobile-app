@@ -22,19 +22,38 @@ const ANDROID_PULL_DISTANCE = 90;
 const LOADING_TIMEOUT_MS = 12000;
 const WEB_TOP_OFFSET = Platform.OS === 'android' ? 56 : 0;
 const APP_DEEP_LINK_SCHEME = 'voda';
+const UNIVERSAL_LINK_HOST = 'voda.ppiyakworld.com';
+const AUTH_VERIFIED_PATH = '/auth/verified';
+
+function normalizeVerificationPath(pathname: string) {
+  if (pathname === AUTH_VERIFIED_PATH || pathname === `${AUTH_VERIFIED_PATH}/`) {
+    return AUTH_VERIFIED_PATH;
+  }
+
+  return null;
+}
 
 function getWebViewUrlFromDeepLink(url: string) {
   try {
     const parsedUrl = new URL(url);
+    const isCustomScheme = parsedUrl.protocol === `${APP_DEEP_LINK_SCHEME}:`;
+    const isUniversalLink =
+      parsedUrl.protocol === 'https:' && parsedUrl.hostname === UNIVERSAL_LINK_HOST;
 
-    if (parsedUrl.protocol !== `${APP_DEEP_LINK_SCHEME}:`) {
+    if (!isCustomScheme && !isUniversalLink) {
       return null;
     }
 
-    const hostPath = parsedUrl.hostname ? `/${parsedUrl.hostname}` : '';
-    const path = parsedUrl.pathname === '/' ? '' : parsedUrl.pathname;
+    const customSchemePath = isCustomScheme
+      ? `${parsedUrl.hostname ? `/${parsedUrl.hostname}` : ''}${parsedUrl.pathname === '/' ? '' : parsedUrl.pathname}`
+      : parsedUrl.pathname;
+    const normalizedPath = normalizeVerificationPath(customSchemePath);
 
-    return `${WEBVIEW_ORIGIN}${hostPath}${path}${parsedUrl.search}${parsedUrl.hash}`;
+    if (!normalizedPath) {
+      return null;
+    }
+
+    return `${WEBVIEW_ORIGIN}${normalizedPath}${parsedUrl.search}${parsedUrl.hash}`;
   } catch {
     return null;
   }
@@ -79,6 +98,7 @@ export default function App() {
   const [hasError, setHasError] = useState(false);
   const [webViewKey, setWebViewKey] = useState(0);
   const [webViewUrl, setWebViewUrl] = useState(WEBVIEW_URL);
+  const lastHandledDeepLinkRef = useRef<string | null>(null);
 
   const refresh = useCallback(() => {
     setHasError(false);
@@ -159,12 +179,17 @@ export default function App() {
 
   useEffect(() => {
     function openDeepLink(url: string) {
+      if (lastHandledDeepLinkRef.current === url) {
+        return;
+      }
+
       const nextWebViewUrl = getWebViewUrlFromDeepLink(url);
 
       if (!nextWebViewUrl) {
         return;
       }
 
+      lastHandledDeepLinkRef.current = url;
       setHasError(false);
       setIsLoading(true);
       setIsRefreshing(false);
