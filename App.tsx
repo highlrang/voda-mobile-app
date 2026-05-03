@@ -20,7 +20,7 @@ import { WEBVIEW_ORIGIN, WEBVIEW_URL } from './config';
 const APP_USER_AGENT_SUFFIX = 'MY_APP';
 const ANDROID_PULL_DISTANCE = 90;
 const LOADING_TIMEOUT_MS = 12000;
-const WEB_TOP_OFFSET = Platform.OS === 'android' ? 56 : 0;
+const WEB_TOP_OFFSET = Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 0;
 const APP_DEEP_LINK_SCHEME = 'voda';
 const UNIVERSAL_LINK_HOST = 'voda.ppiyakworld.com';
 const AUTH_VERIFIED_PATH = '/auth/verified';
@@ -282,7 +282,6 @@ export default function App() {
               onHttpError={handleError}
               onNavigationStateChange={handleNavigationStateChange}
               pullToRefreshEnabled
-              startInLoadingState
               javaScriptEnabled
               domStorageEnabled
             />
