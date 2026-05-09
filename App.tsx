@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import * as ScreenOrientation from 'expo-screen-orientation';
 import {
   ActivityIndicator,
   BackHandler,
@@ -99,6 +100,12 @@ export default function App() {
   const [webViewKey, setWebViewKey] = useState(0);
   const [webViewUrl, setWebViewUrl] = useState(WEBVIEW_URL);
   const lastHandledDeepLinkRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    ScreenOrientation.unlockAsync().catch(() => {
+      // Keep the app running if the platform cannot change orientation at runtime.
+    });
+  }, []);
 
   const refresh = useCallback(() => {
     setHasError(false);
