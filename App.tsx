@@ -92,9 +92,17 @@ const tarotBridge = `
     window.__fortuneOrigPushState__ = origPushState;
     window.__fortuneOrigReplaceState__ = origReplaceState;
 
+    function getPathname(url) {
+      try {
+        return new URL(url, window.location.origin).pathname;
+      } catch (e) {
+        return typeof url === 'string' ? url.split('?')[0] : '';
+      }
+    }
+
     function interceptTarotRoute(state, url) {
       if (typeof url === 'string') {
-        var path = url.split('?')[0];
+        var path = getPathname(url);
         if (path === '/tarot-picker' || path === '/tarot-spread') {
           var flowState = (state && state.usr) ? state.usr : (state || {});
           window.ReactNativeWebView.postMessage(JSON.stringify({
@@ -234,6 +242,26 @@ export default function App() {
       // Ignore malformed navigation URLs from the WebView.
     }
   }, [tarotDeckOrder.length]);
+
+  const handleShouldStartLoadWithRequest = useCallback(
+    (request: { url: string }) => {
+      try {
+        const path = new URL(request.url).pathname;
+        if (path === '/tarot-picker') {
+          setTarotScreen('picker');
+          return false;
+        }
+        if (path === '/tarot-spread') {
+          setTarotScreen(tarotDeckOrder.length > 0 ? 'spread' : 'picker');
+          return false;
+        }
+      } catch {
+        // Allow malformed or platform-specific internal WebView requests.
+      }
+      return true;
+    },
+    [tarotDeckOrder.length],
+  );
 
   const handleMessage = useCallback(
     (event: WebViewMessageEvent) => {
@@ -489,6 +517,7 @@ export default function App() {
               source={{ uri: webViewUrl }}
               style={styles.webView}
               applicationNameForUserAgent={APP_USER_AGENT_SUFFIX}
+              injectedJavaScriptBeforeContentLoaded={tarotBridge}
               injectedJavaScript={injectedJS}
               onMessage={handleMessage}
               onLoadStart={handleLoadStart}
@@ -497,6 +526,7 @@ export default function App() {
               onLoadProgress={handleLoadProgress}
               onError={handleError}
               onHttpError={handleError}
+              onShouldStartLoadWithRequest={handleShouldStartLoadWithRequest}
               onNavigationStateChange={handleNavigationStateChange}
               pullToRefreshEnabled
               javaScriptEnabled

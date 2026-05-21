@@ -36,14 +36,13 @@ const CARD_H = 340;
 const CARD_THICKNESS = 1.95;
 const SPLIT_GAP = 56;
 const SPLIT_TRAVEL = 180;
-const SHUFFLE_MS = 1200;
-const RANDOM_SHUFFLE_MS = 980;
-const RANDOM_SHUFFLE_LAYER_COUNT = TOTAL_CARDS;
+const SHUFFLE_MS = 480;
+const RANDOM_SHUFFLE_MS = 360;
+const RANDOM_SHUFFLE_LAYER_COUNT = 14;
 const ROTATION_MAX = 30;
 const DECK_TOP_TILT = '72deg';
 const DECK_TOP_TILT_COMPACT = '68deg';
 const DECK_TOP_HEIGHT_SCALE = 1.18;
-const DECK_SIDE_WIDTH_COMPENSATION = 0.90;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -123,26 +122,18 @@ const RandomShuffleCard = React.memo(function RandomShuffleCard({
   progress,
 }: RandomShuffleCardProps) {
   const animatedStyle = useAnimatedStyle(() => {
-    const chunkSize = Math.ceil(RANDOM_SHUFFLE_LAYER_COUNT / 4);
-    const chunkIndex = Math.floor(index / chunkSize);
-    const cardIndexInChunk = index % chunkSize;
-    const chunkCenter = chunkIndex - 1.5;
-    const direction = chunkCenter === 0 ? 1 : Math.sign(chunkCenter);
-    const intraOffset = cardIndexInChunk - (chunkSize - 1) / 2;
-    const delay = chunkIndex * 0.035 + cardIndexInChunk * 0.008;
+    const centerOffset = index - (RANDOM_SHUFFLE_LAYER_COUNT - 1) / 2;
+    const direction = index % 2 === 0 ? -1 : 1;
+    const delay = index * 0.018;
     const local = Math.max(0, Math.min(1, (progress.value - delay) / Math.max(0.001, 1 - delay)));
-    const burst = Math.sin(local * Math.PI);
-    const settle = local > 0.62 ? (local - 0.62) / 0.38 : 0;
-    const verticalDirection = chunkIndex % 2 === 0 ? -1 : 1;
-    const depthWeight = 1 - index / RANDOM_SHUFFLE_LAYER_COUNT;
-    const chunkStrength = 0.9 + Math.abs(chunkCenter) * 0.28;
-    const spreadX = chunkCenter * 14 * chunkStrength + intraOffset * 2;
-    const spreadY = verticalDirection * (18 + Math.abs(chunkCenter) * 9) * (0.72 + depthWeight * 0.28) + intraOffset * 2.4;
-    const rotate = direction * (7 + Math.abs(chunkCenter) * 3.5) + intraOffset * 1.4;
-    const lift = burst * (1 - settle * 0.22);
+    const arc = Math.sin(local * Math.PI);
+    const lift = arc * (1 - local * 0.18);
+    const spreadX = centerOffset * 3.4 + direction * 20;
+    const spreadY = direction * (12 + Math.abs(centerOffset) * 1.4);
+    const rotate = direction * 7 + centerOffset * 0.7;
 
     return {
-      opacity: burst * 0.9,
+      opacity: arc * 0.72,
       transform: [
         { translateX: spreadX * lift },
         { translateY: spreadY * lift },
@@ -164,7 +155,17 @@ const RandomShuffleCard = React.memo(function RandomShuffleCard({
         animatedStyle,
       ]}
     >
-      <CardBack width={cardWidth} height={cardHeight} theme={theme} isTopCard={index % 5 === 0} />
+      <View
+        style={[
+          styles.randomShuffleProxy,
+          {
+            width: cardWidth,
+            height: cardHeight,
+            borderColor: theme.cardBorder,
+            backgroundColor: theme.cardMid,
+          },
+        ]}
+      />
     </Animated.View>
   );
 });
@@ -212,18 +213,14 @@ const SideDeck = React.memo(function SideDeck({
               i % visibleLayerStep === 0;
             const yOffset = sideHeight - i * cardThickness;
             const opacity = isVisible ? (isTopCard || isBottomCard ? 1 : 0.95) : 0.3;
-            const sideProgress = 1 - i / Math.max(1, cardCount - 1);
-            const visualWidth = cardWidth * (1 - (1 - DECK_SIDE_WIDTH_COMPENSATION) * sideProgress);
-
             return (
               <View
                 key={i}
                 style={[
                   styles.deckCardLayer,
                   {
-                    width: visualWidth,
+                    width: cardWidth,
                     height: cardHeight,
-                    left: (cardWidth - visualWidth) / 2,
                     opacity,
                     zIndex: i,
                     transform: [{ translateY: yOffset }],
@@ -231,7 +228,7 @@ const SideDeck = React.memo(function SideDeck({
                 ]}
               >
                 <CardBack
-                  width={visualWidth}
+                  width={cardWidth}
                   height={cardHeight}
                   theme={theme}
                   isTopCard={isTopCard}
@@ -410,14 +407,11 @@ export default function TarotPickerScreen({ flowState, themePreference, onConfir
 
   // ── Random shuffle ──
   const handleRandomShuffle = useCallback(() => {
-    if (isShuffling) return;
+    if (isShuffling || isRandomAnimating) return;
     if (shuffleTimerRef.current) clearTimeout(shuffleTimerRef.current);
     if (randomTimerRef.current) clearTimeout(randomTimerRef.current);
 
     const next = shuffleDeck(deckOrder);
-    setDeckOrder(next);
-    setVisualDeckOrder(next);
-    setHasShuffled(true);
     setIsMergedStack(false);
     setIsSplit(false);
     rotY.value = 0;
@@ -430,29 +424,29 @@ export default function TarotPickerScreen({ flowState, themePreference, onConfir
 
     // Deck container subtle shake (mirrors web container animation)
     deckRotZ.value = withSequence(
-      withTiming(-1.6, { duration: 150 }),
-      withTiming(1.2, { duration: 150 }),
-      withTiming(-0.7, { duration: 150 }),
-      withTiming(0.2, { duration: 150 }),
-      withTiming(0, { duration: 100 }),
+      withTiming(-1.2, { duration: 70 }),
+      withTiming(0.8, { duration: 70 }),
+      withTiming(-0.3, { duration: 60 }),
+      withTiming(0, { duration: 50 }),
     );
     deckX.value = withSequence(
-      withTiming(-6, { duration: 200 }),
-      withTiming(5, { duration: 200 }),
-      withTiming(-2, { duration: 200 }),
-      withTiming(0, { duration: 300 }),
+      withTiming(-5, { duration: 80 }),
+      withTiming(4, { duration: 80 }),
+      withTiming(0, { duration: 100 }),
     );
     deckY.value = withSequence(
-      withTiming(-5, { duration: 200 }),
-      withTiming(2, { duration: 200 }),
-      withTiming(-1, { duration: 200 }),
-      withTiming(0, { duration: 300 }),
+      withTiming(-3, { duration: 80 }),
+      withTiming(2, { duration: 80 }),
+      withTiming(0, { duration: 100 }),
     );
 
     randomTimerRef.current = setTimeout(() => {
+      setDeckOrder(next);
+      setVisualDeckOrder(next);
+      setHasShuffled(true);
       setIsRandomAnimating(false);
     }, RANDOM_SHUFFLE_MS);
-  }, [isShuffling, deckOrder, deckX, deckY, deckRotZ, randomProgress, rotY]);
+  }, [isShuffling, isRandomAnimating, deckOrder, deckX, deckY, deckRotZ, randomProgress, rotY]);
 
   // ── Confirm ──
   const handleConfirm = useCallback(() => {
@@ -537,11 +531,11 @@ export default function TarotPickerScreen({ flowState, themePreference, onConfir
           {/* Random shuffle button */}
           <Pressable
             onPress={handleRandomShuffle}
-            disabled={isShuffling}
+            disabled={isShuffling || isRandomAnimating}
             style={[
               styles.iconButton,
               { borderColor: T.surfaceBorder, backgroundColor: T.surfaceBg },
-              isShuffling && styles.disabled,
+              (isShuffling || isRandomAnimating) && styles.disabled,
             ]}
           >
             <Text style={[styles.iconButtonText, { color: T.textMuted }]}>⇄</Text>
@@ -756,6 +750,11 @@ const styles = StyleSheet.create({
     left: 0,
     top: 0,
     opacity: 0,
+  },
+  randomShuffleProxy: {
+    borderWidth: 0.7,
+    borderRadius: 12,
+    opacity: 0.88,
   },
   splitPile: {
     position: 'absolute',
