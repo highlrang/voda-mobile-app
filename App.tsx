@@ -5,7 +5,6 @@ import {
   BackHandler,
   Button,
   Linking,
-  PanResponder,
   Platform,
   SafeAreaView,
   StyleSheet,
@@ -14,139 +13,111 @@ import {
   View,
 } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import type { WebViewMessageEvent, WebViewNavigation } from 'react-native-webview';
+import type { WebViewNavigation } from 'react-native-webview';
 import { WebView } from 'react-native-webview';
 
 import { WEBVIEW_ORIGIN, WEBVIEW_URL } from './config';
-import TarotPickerScreen from './src/tarot/TarotPickerScreen';
-import TarotSpreadScreen from './src/tarot/TarotSpreadScreen';
-import type { TarotNativeState } from './src/tarot/types';
 
 const APP_USER_AGENT_SUFFIX = 'MY_APP';
-const ANDROID_PULL_DISTANCE = 90;
 const LOADING_TIMEOUT_MS = 12000;
 const WEB_TOP_OFFSET = Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 0;
+const WEB_BOTTOM_OFFSET = Platform.OS === 'android' ? 16 : 0;
 const APP_DEEP_LINK_SCHEME = 'voda';
 const UNIVERSAL_LINK_HOST = 'voda.ppiyakworld.com';
 const AUTH_VERIFIED_PATH = '/auth/verified';
 
 // ─── Injected scripts ─────────────────────────────────────────────────────────
 
-const scrollWatcher = `
+const webViewSafeArea = `
   (function () {
     var topOffset = ${WEB_TOP_OFFSET};
+    var bottomOffset = ${WEB_BOTTOM_OFFSET};
 
-    if (topOffset > 0) {
+    function setViewportVars() {
+      var viewport = window.visualViewport;
+      var viewportHeight = viewport && viewport.height ? viewport.height : window.innerHeight;
+      var viewportWidth = viewport && viewport.width ? viewport.width : window.innerWidth;
+
+      document.documentElement.style.setProperty('--native-webview-height', viewportHeight + 'px');
+      document.documentElement.style.setProperty('--native-webview-width', viewportWidth + 'px');
+      document.documentElement.style.setProperty('--native-webview-top-offset', topOffset + 'px');
+      document.documentElement.style.setProperty('--native-webview-bottom-offset', bottomOffset + 'px');
+    }
+
+    function installViewportMeta() {
+      var meta = document.querySelector('meta[name="viewport"]');
+      if (!meta) {
+        meta = document.createElement('meta');
+        meta.setAttribute('name', 'viewport');
+        document.head.appendChild(meta);
+      }
+
+      var content = meta.getAttribute('content') || 'width=device-width, initial-scale=1';
+      if (content.indexOf('viewport-fit=cover') === -1) {
+        meta.setAttribute('content', content + ', viewport-fit=cover');
+      }
+    }
+
+    function installStyle() {
+      if (document.getElementById('native-webview-safe-area')) {
+        return;
+      }
+
       var style = document.createElement('style');
       style.id = 'native-webview-safe-area';
       style.textContent = [
-        'html { background: inherit; }',
-        'body { padding-top: ' + topOffset + 'px !important; }'
+        ':root {',
+        '  --native-webview-height: 100vh;',
+        '  --native-webview-width: 100vw;',
+        '  --native-webview-top-offset: ' + topOffset + 'px;',
+        '  --native-webview-bottom-offset: ' + bottomOffset + 'px;',
+        '}',
+        'html { background: inherit; min-height: var(--native-webview-height); }',
+        'body {',
+        '  min-height: var(--native-webview-height);',
+        '  padding-top: ' + topOffset + 'px !important;',
+        '  padding-bottom: max(env(safe-area-inset-bottom), var(--native-webview-bottom-offset)) !important;',
+        '  overscroll-behavior-y: none;',
+        '}',
+        '#root, #__next { min-height: var(--native-webview-height); }',
+        '[class*="tarot" i], [id*="tarot" i], [class*="card" i], [class*="deck" i] {',
+        '  -webkit-backface-visibility: hidden;',
+        '  backface-visibility: hidden;',
+        '  -webkit-transform-style: preserve-3d;',
+        '  transform-style: preserve-3d;',
+        '}',
+        '[class*="tarot" i] button, [id*="tarot" i] button, button[class*="card" i], button[class*="spread" i] {',
+        '  will-change: transform, opacity;',
+        '}',
+        '[class*="shuffle" i], [class*="deck" i], [class*="card" i][style*="transform"] {',
+        '  contain: layout paint style;',
+        '  will-change: transform;',
+        '}',
+        '[class*="bottom" i], [class*="footer" i], [class*="cta" i] {',
+        '  scroll-margin-bottom: max(24px, env(safe-area-inset-bottom), var(--native-webview-bottom-offset));',
+        '}',
+        '[class*="tarot" i] [class*="footer" i], [id*="tarot" i] [class*="footer" i],',
+        '[class*="tarot" i] [class*="bottom" i], [id*="tarot" i] [class*="bottom" i] {',
+        '  padding-bottom: max(env(safe-area-inset-bottom), var(--native-webview-bottom-offset)) !important;',
+        '}'
       ].join('\\n');
       document.head.appendChild(style);
     }
 
-    function postScrollPosition() {
-      window.ReactNativeWebView.postMessage(JSON.stringify({
-        type: 'scroll',
-        scrollY: window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0
-      }));
-    }
+    installViewportMeta();
+    installStyle();
+    setViewportVars();
 
-    window.addEventListener('scroll', postScrollPosition, { passive: true });
-    postScrollPosition();
-  })();
-  true;
-`;
-
-/**
- * Patches history.pushState to intercept tarot routes before React Router
- * commits the navigation. State is extracted from the React Router v6 format
- * { usr: flowState, key, idx } and posted to native.
- */
-const tarotBridge = `
-  (function () {
-    if (window.__fortuneTarotBridgeInstalled__) return;
-    window.__fortuneTarotBridgeInstalled__ = true;
-
-    function getThemePreference() {
-      var root = document.documentElement;
-      var stored = null;
-      try { stored = window.localStorage.getItem('fortune-index-theme'); } catch (e) {}
-      if (stored === 'dark' || stored === 'light') return stored;
-      if (root.dataset && (root.dataset.theme === 'dark' || root.dataset.theme === 'light')) {
-        return root.dataset.theme;
-      }
-      return root.classList.contains('dark') ? 'dark' : 'light';
-    }
-
-    window.__fortunePostNativeTheme__ = function () {
-      window.ReactNativeWebView.postMessage(JSON.stringify({
-        type: 'THEME_STATE',
-        theme: getThemePreference()
-      }));
-    };
-
-    var origPushState = window.history.pushState.bind(window.history);
-    var origReplaceState = window.history.replaceState.bind(window.history);
-    window.__fortuneOrigPushState__ = origPushState;
-    window.__fortuneOrigReplaceState__ = origReplaceState;
-
-    function getPathname(url) {
-      try {
-        return new URL(url, window.location.origin).pathname;
-      } catch (e) {
-        return typeof url === 'string' ? url.split('?')[0] : '';
-      }
-    }
-
-    function interceptTarotRoute(state, url) {
-      if (typeof url === 'string') {
-        var path = getPathname(url);
-        if (path === '/tarot-picker' || path === '/tarot-spread') {
-          var flowState = (state && state.usr) ? state.usr : (state || {});
-          window.ReactNativeWebView.postMessage(JSON.stringify({
-            type: 'TAROT_NATIVE_START',
-            path: path,
-            flowState: flowState,
-            theme: getThemePreference()
-          }));
-          return true;
-        }
-      }
-      return false;
-    }
-
-    window.history.pushState = function (state, title, url) {
-      if (interceptTarotRoute(state, url)) {
-        return;
-      }
-      return origPushState(state, title, url);
-    };
-
-    window.history.replaceState = function (state, title, url) {
-      if (interceptTarotRoute(state, url)) {
-        return;
-      }
-      return origReplaceState(state, title, url);
-    };
-
-    window.addEventListener('popstate', function (event) {
-      var path = window.location.pathname;
-      if (path === '/tarot-picker' || path === '/tarot-spread') {
-        interceptTarotRoute(event.state, path);
-      }
+    window.addEventListener('resize', setViewportVars);
+    window.addEventListener('orientationchange', function () {
+      window.setTimeout(setViewportVars, 60);
+      window.setTimeout(setViewportVars, 260);
     });
 
-    window.__fortunePostNativeTheme__();
-
-    var observer = new MutationObserver(function () {
-      window.__fortunePostNativeTheme__();
-    });
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['class', 'data-theme', 'style']
-    });
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', setViewportVars);
+      window.visualViewport.addEventListener('scroll', setViewportVars);
+    }
   })();
   true;
 `;
@@ -188,16 +159,10 @@ function getWebViewUrlFromDeepLink(url: string) {
 
 // ─── App ──────────────────────────────────────────────────────────────────────
 
-type TarotScreen = 'picker' | 'spread' | null;
-type NativeThemePreference = 'dark' | 'light';
-
 export default function App() {
   const webViewRef = useRef<WebView>(null);
   const loadingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const canGoBackRef = useRef(false);
-  const isAtTopRef = useRef(true);
-  const isLoadingRef = useRef(true);
-  const isRefreshingRef = useRef(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [hasError, setHasError] = useState(false);
@@ -205,20 +170,8 @@ export default function App() {
   const [webViewUrl, setWebViewUrl] = useState(WEBVIEW_URL);
   const lastHandledDeepLinkRef = useRef<string | null>(null);
 
-  // Tarot native screen state
-  const [tarotScreen, setTarotScreen] = useState<TarotScreen>(null);
-  const [tarotFlowState, setTarotFlowState] = useState<TarotNativeState>({});
-  const [tarotDeckOrder, setTarotDeckOrder] = useState<number[]>([]);
-  const [nativeTheme, setNativeTheme] = useState<NativeThemePreference>('dark');
-
   useEffect(() => {
     ScreenOrientation.unlockAsync().catch(() => {});
-  }, []);
-
-  const refresh = useCallback(() => {
-    setHasError(false);
-    setIsRefreshing(true);
-    webViewRef.current?.reload();
   }, []);
 
   const resetWebView = useCallback(() => {
@@ -230,161 +183,7 @@ export default function App() {
 
   const handleNavigationStateChange = useCallback((navState: WebViewNavigation) => {
     canGoBackRef.current = navState.canGoBack;
-
-    try {
-      const path = new URL(navState.url).pathname;
-      if (path === '/tarot-picker') {
-        setTarotScreen('picker');
-      } else if (path === '/tarot-spread') {
-        setTarotScreen(tarotDeckOrder.length > 0 ? 'spread' : 'picker');
-      }
-    } catch {
-      // Ignore malformed navigation URLs from the WebView.
-    }
-  }, [tarotDeckOrder.length]);
-
-  const handleShouldStartLoadWithRequest = useCallback(
-    (request: { url: string }) => {
-      try {
-        const path = new URL(request.url).pathname;
-        if (path === '/tarot-picker') {
-          setTarotScreen('picker');
-          return false;
-        }
-        if (path === '/tarot-spread') {
-          setTarotScreen(tarotDeckOrder.length > 0 ? 'spread' : 'picker');
-          return false;
-        }
-      } catch {
-        // Allow malformed or platform-specific internal WebView requests.
-      }
-      return true;
-    },
-    [tarotDeckOrder.length],
-  );
-
-  const handleMessage = useCallback(
-    (event: WebViewMessageEvent) => {
-      try {
-        const data = JSON.parse(event.nativeEvent.data) as {
-          type?: string;
-          scrollY?: number;
-          path?: string;
-          flowState?: TarotNativeState;
-          theme?: NativeThemePreference;
-        };
-
-        if (data.type === 'THEME_STATE') {
-          if (data.theme === 'dark' || data.theme === 'light') {
-            setNativeTheme(data.theme);
-          }
-          return;
-        }
-
-        if (data.type === 'scroll') {
-          isAtTopRef.current = (data.scrollY ?? 0) <= 2;
-          return;
-        }
-
-        if (data.type === 'TAROT_NATIVE_START') {
-          const flow: TarotNativeState = data.flowState ?? {};
-          if (data.theme === 'dark' || data.theme === 'light') {
-            setNativeTheme(data.theme);
-          }
-          setTarotFlowState(flow);
-
-          if (data.path === '/tarot-spread' && flow.deckOrder) {
-            setTarotDeckOrder(flow.deckOrder);
-            setTarotScreen('spread');
-          } else {
-            setTarotScreen('picker');
-          }
-        }
-      } catch {
-        // Ignore non-JSON messages.
-      }
-    },
-    [],
-  );
-
-  // Called when user finishes picking cards
-  const handleTarotComplete = useCallback(
-    (selectedCards: number[], deckOrder: number[], tarotDeckVersionId: string) => {
-      const fullState: TarotNativeState = {
-        ...tarotFlowState,
-        selectedCards,
-        deckOrder,
-        tarotDeckVersionId,
-      };
-
-      const payloadJson = JSON.stringify(fullState);
-      const script = `
-        (function () {
-          var payload = ${payloadJson};
-          if (typeof window.__FORTUNE_NATIVE_TAROT_COMPLETE__ === 'function') {
-            window.__FORTUNE_NATIVE_TAROT_COMPLETE__(payload);
-          } else {
-            // Fallback: try to navigate by pushing state and firing popstate
-            var key = Math.random().toString(36).slice(2, 7);
-            var state = { usr: payload, key: key, idx: window.history.length };
-            var push = window.__fortuneOrigPushState__ || window.history.pushState.bind(window.history);
-            push(state, '', '/tarot-result');
-            window.dispatchEvent(new PopStateEvent('popstate', { state: state }));
-          }
-        })();
-        true;
-      `;
-
-      setTarotScreen(null);
-
-      // Give WebView a frame to become visible before injecting
-      setTimeout(() => {
-        webViewRef.current?.injectJavaScript(script);
-      }, 80);
-    },
-    [tarotFlowState],
-  );
-
-  // Picker confirmed → move to spread screen
-  const handlePickerConfirm = useCallback(
-    (deckOrder: number[], tarotDeckVersionId: string) => {
-      setTarotDeckOrder(deckOrder);
-      setTarotFlowState((prev) => ({ ...prev, tarotDeckVersionId }));
-      setTarotScreen('spread');
-    },
-    [],
-  );
-
-  // Spread back → return to picker
-  const handleSpreadBack = useCallback(() => {
-    setTarotScreen('picker');
   }, []);
-
-  const handlePickerBack = useCallback(() => {
-    setTarotScreen(null);
-  }, []);
-
-  const androidPullToRefreshResponder = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_, gestureState) =>
-        Platform.OS === 'android' &&
-        isAtTopRef.current &&
-        !isLoadingRef.current &&
-        !isRefreshingRef.current &&
-        gestureState.dy > 16 &&
-        Math.abs(gestureState.dy) > Math.abs(gestureState.dx),
-      onPanResponderRelease: (_, gestureState) => {
-        if (gestureState.dy >= ANDROID_PULL_DISTANCE) {
-          refresh();
-        }
-      },
-    }),
-  ).current;
-
-  useEffect(() => {
-    isLoadingRef.current = isLoading;
-    isRefreshingRef.current = isRefreshing;
-  }, [isLoading, isRefreshing]);
 
   useEffect(
     () => () => {
@@ -401,14 +200,6 @@ export default function App() {
     }
 
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (tarotScreen === 'spread') {
-        handleSpreadBack();
-        return true;
-      }
-      if (tarotScreen === 'picker') {
-        handlePickerBack();
-        return true;
-      }
       if (canGoBackRef.current) {
         webViewRef.current?.goBack();
         return true;
@@ -417,7 +208,7 @@ export default function App() {
     });
 
     return () => subscription.remove();
-  }, [tarotScreen, handleSpreadBack, handlePickerBack]);
+  }, []);
 
   useEffect(() => {
     function openDeepLink(url: string) {
@@ -494,20 +285,12 @@ export default function App() {
     </View>
   );
 
-  const injectedJS = `${scrollWatcher}\n${tarotBridge}`;
-
   return (
     <GestureHandlerRootView style={styles.fill}>
       <StatusBar translucent={false} backgroundColor="#ffffff" barStyle="dark-content" />
       <SafeAreaView style={styles.safeArea}>
-        {/* WebView is always mounted to preserve page state; hidden when native screens are shown */}
-        <View
-          style={[
-            styles.container,
-            tarotScreen !== null && styles.hidden,
-          ]}
-          {...(tarotScreen === null ? androidPullToRefreshResponder.panHandlers : {})}
-        >
+        {/* WebView stays mounted to preserve page state across reloads and navigation. */}
+        <View style={styles.container}>
           {hasError ? (
             renderError()
           ) : (
@@ -517,20 +300,19 @@ export default function App() {
               source={{ uri: webViewUrl }}
               style={styles.webView}
               applicationNameForUserAgent={APP_USER_AGENT_SUFFIX}
-              injectedJavaScriptBeforeContentLoaded={tarotBridge}
-              injectedJavaScript={injectedJS}
-              onMessage={handleMessage}
+              injectedJavaScript={webViewSafeArea}
               onLoadStart={handleLoadStart}
               onLoad={finishLoading}
               onLoadEnd={finishLoading}
               onLoadProgress={handleLoadProgress}
               onError={handleError}
               onHttpError={handleError}
-              onShouldStartLoadWithRequest={handleShouldStartLoadWithRequest}
               onNavigationStateChange={handleNavigationStateChange}
               pullToRefreshEnabled
               javaScriptEnabled
               domStorageEnabled
+              cacheEnabled
+              androidLayerType="hardware"
             />
           )}
 
@@ -541,30 +323,6 @@ export default function App() {
             </View>
           )}
         </View>
-
-        {/* Native tarot screens */}
-        {tarotScreen === 'picker' && (
-          <View style={styles.nativeScreen}>
-            <TarotPickerScreen
-              flowState={tarotFlowState}
-              themePreference={nativeTheme}
-              onConfirm={handlePickerConfirm}
-              onBack={handlePickerBack}
-            />
-          </View>
-        )}
-
-        {tarotScreen === 'spread' && (
-          <View style={styles.nativeScreen}>
-            <TarotSpreadScreen
-              flowState={tarotFlowState}
-              deckOrder={tarotDeckOrder}
-              themePreference={nativeTheme}
-              onConfirm={handleTarotComplete}
-              onBack={handleSpreadBack}
-            />
-          </View>
-        )}
       </SafeAreaView>
     </GestureHandlerRootView>
   );
@@ -580,18 +338,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#ffffff',
   },
-  hidden: {
-    position: 'absolute',
-    width: 0,
-    height: 0,
-    overflow: 'hidden',
-  },
   webView: {
     flex: 1,
     backgroundColor: '#ffffff',
-  },
-  nativeScreen: {
-    flex: 1,
   },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
