@@ -2,25 +2,34 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import {
   ActivityIndicator,
+  Alert,
   BackHandler,
   Button,
   Linking,
   Platform,
-  SafeAreaView,
   StyleSheet,
   StatusBar,
   Text,
+  TouchableOpacity,
   View,
 } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import type { WebViewNavigation } from 'react-native-webview';
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import type { WebViewMessageEvent, WebViewNavigation } from 'react-native-webview';
 import { WebView } from 'react-native-webview';
 
 import { WEBVIEW_ORIGIN, WEBVIEW_URL } from './config';
+import {
+  captureAndSaveConsultationResultSnapshot,
+  ConsultationResultSnapshotPermissionError,
+  parseConsultationResultSnapshotRequest,
+} from './src/lib/consultationResultSnapshot';
+import { clearInstallDeviceId, getInstallDeviceId } from './src/lib/installDeviceId';
+
+const INSTALL_DEVICE_ID_HEADER = 'X-Install-Device-Id';
 
 const APP_USER_AGENT_SUFFIX = 'MY_APP';
 const LOADING_TIMEOUT_MS = 12000;
-const WEB_TOP_OFFSET = Platform.OS === 'android' ? (StatusBar.currentHeight ?? 0) : 0;
 const WEB_BOTTOM_OFFSET = Platform.OS === 'android' ? 16 : 0;
 const APP_DEEP_LINK_SCHEME = 'voda';
 const UNIVERSAL_LINK_HOST = 'voda.ppiyakworld.com';
@@ -28,9 +37,16 @@ const AUTH_VERIFIED_PATH = '/auth/verified';
 
 // ─── Injected scripts ─────────────────────────────────────────────────────────
 
-const webViewSafeArea = `
+// `topOffset` needs the real status-bar-safe-area inset from
+// useSafeAreaInsets(), not a hardcoded guess — a fixed 0 (assuming
+// StatusBar translucent={false} always keeps native layout clear of the
+// status bar) left page headers clipped under the status bar on devices/OS
+// versions where Android's edge-to-edge behavior draws the app behind it
+// regardless (mandatory on Android 15+ for apps targeting API 35+).
+function buildWebViewSafeAreaScript(topOffset: number) {
+  return `
   (function () {
-    var topOffset = ${WEB_TOP_OFFSET};
+    var topOffset = ${topOffset};
     var bottomOffset = ${WEB_BOTTOM_OFFSET};
 
     function setViewportVars() {
@@ -121,6 +137,20 @@ const webViewSafeArea = `
   })();
   true;
 `;
+}
+
+// Exposes the native install-device id as a global before any page script runs, so
+// the web app's own request layer can read it and attach it as a header itself —
+// the WebView's `source.headers` only covers the initial document request, not
+// subsequent fetch/XHR calls the page makes.
+function buildInstallDeviceIdScript(installDeviceId: string) {
+  return `
+    (function () {
+      window.__VODA_INSTALL_DEVICE_ID__ = ${JSON.stringify(installDeviceId)};
+    })();
+    true;
+  `;
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -160,7 +190,18 @@ function getWebViewUrlFromDeepLink(url: string) {
 // ─── App ──────────────────────────────────────────────────────────────────────
 
 export default function App() {
+  return (
+    <SafeAreaProvider>
+      <AppContent />
+    </SafeAreaProvider>
+  );
+}
+
+function AppContent() {
+  const insets = useSafeAreaInsets();
   const webViewRef = useRef<WebView>(null);
+  const containerRef = useRef<View>(null);
+  const isSavingSnapshotRef = useRef(false);
   const loadingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const canGoBackRef = useRef(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -169,9 +210,34 @@ export default function App() {
   const [webViewKey, setWebViewKey] = useState(0);
   const [webViewUrl, setWebViewUrl] = useState(WEBVIEW_URL);
   const lastHandledDeepLinkRef = useRef<string | null>(null);
+  // null = not resolved yet, '' = resolution failed (proceed without the header).
+  const [installDeviceId, setInstallDeviceId] = useState<string | null>(null);
+  // Non-null while capturing a consultation-result snapshot: temporarily grows
+  // `container` (and the WebView filling it) past screen bounds so the full
+  // (unscrolled) content is captured, per webview-native-screenshot-request.md.
+  const [snapshotCaptureHeight, setSnapshotCaptureHeight] = useState<number | null>(null);
+  const [isSavingSnapshot, setIsSavingSnapshot] = useState(false);
+  // True only for the instant react-native-view-shot is actually reading
+  // pixels — hides the sibling overlays (which live inside `container`, the
+  // capture target) so they don't get baked into the saved image.
+  const [isCapturingPixels, setIsCapturingPixels] = useState(false);
 
   useEffect(() => {
     ScreenOrientation.unlockAsync().catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    getInstallDeviceId()
+      .then((id) => {
+        if (isMounted) setInstallDeviceId(id);
+      })
+      .catch(() => {
+        if (isMounted) setInstallDeviceId('');
+      });
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const resetWebView = useCallback(() => {
@@ -181,8 +247,60 @@ export default function App() {
     setWebViewKey((key) => key + 1);
   }, []);
 
+  const handleResetInstallDeviceId = useCallback(() => {
+    Alert.alert('Device ID 초기화', '이 기기의 install device id를 새로 발급받고 웹뷰를 다시 로드합니다.', [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '초기화',
+        style: 'destructive',
+        onPress: async () => {
+          await clearInstallDeviceId();
+          const nextId = await getInstallDeviceId();
+          setInstallDeviceId(nextId);
+          resetWebView();
+          Alert.alert('완료', `새 device id: ${nextId}`);
+        },
+      },
+    ]);
+  }, [resetWebView]);
+
   const handleNavigationStateChange = useCallback((navState: WebViewNavigation) => {
     canGoBackRef.current = navState.canGoBack;
+  }, []);
+
+  const handleWebViewMessage = useCallback((event: WebViewMessageEvent) => {
+    const request = parseConsultationResultSnapshotRequest(event.nativeEvent.data);
+    if (!request || isSavingSnapshotRef.current) {
+      return;
+    }
+
+    isSavingSnapshotRef.current = true;
+    setIsSavingSnapshot(true);
+
+    captureAndSaveConsultationResultSnapshot({
+      viewRef: containerRef,
+      webViewRef,
+      contentHeight: request.contentHeight,
+      filename: request.filename,
+      setCaptureHeight: setSnapshotCaptureHeight,
+      setIsCapturingPixels,
+    })
+      .then(() => {
+        Alert.alert('저장 완료', '상담 결과 이미지를 사진첩에 저장했습니다.');
+      })
+      .catch((error) => {
+        const isPermissionDenied = error instanceof ConsultationResultSnapshotPermissionError;
+        Alert.alert(
+          '저장 실패',
+          isPermissionDenied
+            ? '사진첩 접근 권한이 필요합니다. 설정에서 권한을 허용해주세요.'
+            : '이미지를 저장하는 중 문제가 발생했습니다. 다시 시도해주세요.',
+        );
+      })
+      .finally(() => {
+        isSavingSnapshotRef.current = false;
+        setIsSavingSnapshot(false);
+      });
   }, []);
 
   useEffect(
@@ -288,19 +406,42 @@ export default function App() {
   return (
     <GestureHandlerRootView style={styles.fill}>
       <StatusBar translucent={false} backgroundColor="#ffffff" barStyle="dark-content" />
-      <SafeAreaView style={styles.safeArea}>
-        {/* WebView stays mounted to preserve page state across reloads and navigation. */}
-        <View style={styles.container}>
+      {/* edges={[]}: no native inset padding here — the top/bottom safe-area insets are
+          handled inside the WebView itself via injected CSS (see buildWebViewSafeAreaScript),
+          this stays purely a decorative background container like it always was. */}
+      <SafeAreaView edges={[]} style={styles.safeArea}>
+        {/* WebView stays mounted to preserve page state across reloads and navigation.
+            `container` (not a wrapper around just the WebView) is the capture target for
+            the snapshot feature below — a *dedicated* wrapper view around the WebView was
+            found to permanently break its `position: fixed` compositing (the bottom nav
+            stopped staying pinned) the moment it was ever forced into a real native node,
+            even after trying to let it collapse away again. Reusing this already-real,
+            always-present container avoids introducing any such node in the first place. */}
+        <View
+          ref={containerRef}
+          collapsable={false}
+          style={
+            snapshotCaptureHeight != null
+              ? [styles.container, { height: snapshotCaptureHeight }]
+              : styles.container
+          }
+        >
           {hasError ? (
             renderError()
-          ) : (
+          ) : installDeviceId === null ? null : (
             <WebView
               key={webViewKey}
               ref={webViewRef}
-              source={{ uri: webViewUrl }}
+              source={{
+                uri: webViewUrl,
+                headers: installDeviceId
+                  ? { [INSTALL_DEVICE_ID_HEADER]: installDeviceId }
+                  : undefined,
+              }}
               style={styles.webView}
               applicationNameForUserAgent={APP_USER_AGENT_SUFFIX}
-              injectedJavaScript={webViewSafeArea}
+              injectedJavaScriptBeforeContentLoaded={buildInstallDeviceIdScript(installDeviceId)}
+              injectedJavaScript={buildWebViewSafeAreaScript(insets.top)}
               onLoadStart={handleLoadStart}
               onLoad={finishLoading}
               onLoadEnd={finishLoading}
@@ -308,19 +449,43 @@ export default function App() {
               onError={handleError}
               onHttpError={handleError}
               onNavigationStateChange={handleNavigationStateChange}
+              onMessage={handleWebViewMessage}
               pullToRefreshEnabled
               javaScriptEnabled
               domStorageEnabled
               cacheEnabled
-              androidLayerType="hardware"
+              // Android's hardware layer captures a WebView via PixelCopy off the
+              // GPU-composited surface, which can miss/stale content that was
+              // off-screen (scrolled away, or beyond the pre-resize viewport) and
+              // hasn't been re-rasterized yet. Switch to the software (CPU canvas)
+              // path while we resize + capture so the whole expanded page is
+              // actually drawn, not just what the GPU tile cache still has.
+              androidLayerType={isSavingSnapshot ? 'software' : 'hardware'}
             />
           )}
 
-          {(isLoading || isRefreshing) && (
+          {(isLoading || isRefreshing) && !isCapturingPixels && (
             <View pointerEvents="none" style={styles.loadingOverlay}>
               <ActivityIndicator size="large" color="#1f6feb" />
               {isRefreshing && <Text style={styles.refreshingText}>새로고침 중...</Text>}
             </View>
+          )}
+
+          {isSavingSnapshot && !isCapturingPixels && (
+            <View pointerEvents="none" style={styles.loadingOverlay}>
+              <ActivityIndicator size="large" color="#1f6feb" />
+              <Text style={styles.refreshingText}>이미지 저장 중...</Text>
+            </View>
+          )}
+
+          {__DEV__ && !isCapturingPixels && (
+            <TouchableOpacity
+              style={styles.debugResetButton}
+              onPress={handleResetInstallDeviceId}
+              accessibilityLabel="Device ID 초기화 (QA 전용)"
+            >
+              <Text style={styles.debugResetButtonText}>ID 초기화</Text>
+            </TouchableOpacity>
           )}
         </View>
       </SafeAreaView>
@@ -337,6 +502,20 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#ffffff',
+  },
+  debugResetButton: {
+    position: 'absolute',
+    right: 12,
+    bottom: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+  },
+  debugResetButtonText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '600',
   },
   webView: {
     flex: 1,

@@ -16,7 +16,6 @@
     },
     "android": {
       "package": "com.ppiyakworld.voda",
-      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FFFFFF"
@@ -57,6 +56,25 @@
       "backgroundColor": "#ffffff",
       "barStyle": "dark-content",
       "translucent": false
-    }
+    },
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ],
+      "expo-secure-store",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "상담 결과 이미지를 사진첩에 저장하기 위해 접근 권한이 필요합니다.",
+          "savePhotosPermission": "상담 결과 이미지를 사진첩에 저장하기 위해 접근 권한이 필요합니다.",
+          "isAccessMediaLocationEnabled": false
+        }
+      ]
+    ]
   }
 }
