@@ -26,8 +26,7 @@
           "data": [
             {
               "scheme": "voda",
-              "host": "auth",
-              "pathPrefix": "/verified"
+              "host": "auth"
             }
           ],
           "category": [
@@ -42,7 +41,7 @@
             {
               "scheme": "https",
               "host": "voda.ppiyakworld.com",
-              "pathPrefix": "/auth/verified"
+              "pathPrefix": "/auth"
             }
           ],
           "category": [

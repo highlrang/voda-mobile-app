@@ -5,6 +5,10 @@
 - **APK** (`.apk`): 기기에 바로 설치하는 내부 테스트용. `assembleRelease`.
 - **AAB** (`.aab`): Play Store 에 제출하는 파일. `bundleRelease`. → [Play Store 배포 (AAB)](#play-store-배포-aab)
 
+> **환경 (개발/운영)**: 내부 테스트 APK 는 개발 웹(`voda-dev.ppiyakworld.com`), Play Store AAB 는
+> 운영 웹(`voda.ppiyakworld.com`)을 바라본다. `npm run build:apk:dev` / `npm run build:aab:prod`
+> 스크립트가 이걸 처리한다. 자세한 규칙과 딥링크는 [DEEP_LINKING.md](./DEEP_LINKING.md) 참고.
+
 ## Prerequisites
 
 - Node.js / npm 설치

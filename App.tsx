@@ -39,8 +39,14 @@ const APP_USER_AGENT_SUFFIX = 'MY_APP';
 const LOADING_TIMEOUT_MS = 12000;
 const WEB_BOTTOM_OFFSET = Platform.OS === 'android' ? 16 : 0;
 const APP_DEEP_LINK_SCHEME = 'voda';
+// 운영 유니버설/앱링크 호스트 (iOS associatedDomains / Android autoVerify 대상).
+// 개발 빌드는 커스텀 스킴(voda://)으로만 딥링크가 들어온다.
 const UNIVERSAL_LINK_HOST = 'voda.ppiyakworld.com';
-const AUTH_VERIFIED_PATH = '/auth/verified';
+// 앱이 받아서 WebView로 넘겨주는 딥링크 경로. 여기서 시작하는 경로만 허용하고,
+// 나머지(쿼리스트링·해시 포함)는 그대로 현재 WEBVIEW_ORIGIN 뒤에 붙여 전달한다.
+//   voda://auth/verified?token=...        → ${WEBVIEW_ORIGIN}/auth/verified?token=...
+//   voda://auth/password-reset?token=...  → ${WEBVIEW_ORIGIN}/auth/password-reset?token=...
+const DEEP_LINK_ALLOWED_PATH_PREFIXES = ['/auth/'];
 
 // ─── Injected scripts ─────────────────────────────────────────────────────────
 
@@ -167,11 +173,13 @@ function buildNativeContextScript(nativeContext: NativeContext) {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function normalizeVerificationPath(pathname: string) {
-  if (pathname === AUTH_VERIFIED_PATH || pathname === `${AUTH_VERIFIED_PATH}/`) {
-    return AUTH_VERIFIED_PATH;
-  }
-  return null;
+function normalizeDeepLinkPath(pathname: string) {
+  const collapsed = pathname.replace(/\/{2,}/g, '/').replace(/\/+$/, '');
+  const normalized = collapsed === '' ? '/' : collapsed;
+  const isAllowed = DEEP_LINK_ALLOWED_PATH_PREFIXES.some((prefix) =>
+    normalized.startsWith(prefix),
+  );
+  return isAllowed ? normalized : null;
 }
 
 function getWebViewUrlFromDeepLink(url: string) {
@@ -188,7 +196,7 @@ function getWebViewUrlFromDeepLink(url: string) {
     const customSchemePath = isCustomScheme
       ? `${parsedUrl.hostname ? `/${parsedUrl.hostname}` : ''}${parsedUrl.pathname === '/' ? '' : parsedUrl.pathname}`
       : parsedUrl.pathname;
-    const normalizedPath = normalizeVerificationPath(customSchemePath);
+    const normalizedPath = normalizeDeepLinkPath(customSchemePath);
 
     if (!normalizedPath) {
       return null;
