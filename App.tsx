@@ -24,9 +24,16 @@ import {
   ConsultationResultSnapshotPermissionError,
   parseConsultationResultSnapshotRequest,
 } from './src/lib/consultationResultSnapshot';
-import { clearInstallDeviceId, getInstallDeviceId } from './src/lib/installDeviceId';
+import { clearGuestId } from './src/lib/guestId';
+import {
+  getNativeContext,
+  resetNativeContextCache,
+  type NativeContext,
+} from './src/lib/nativeContext';
 
-const INSTALL_DEVICE_ID_HEADER = 'X-Install-Device-Id';
+const DEVICE_PLATFORM_HEADER = 'X-Device-Platform';
+const DEVICE_ID_HEADER = 'X-Device-Id';
+const GUEST_ID_HEADER = 'X-Guest-Id';
 
 const APP_USER_AGENT_SUFFIX = 'MY_APP';
 const LOADING_TIMEOUT_MS = 12000;
@@ -139,14 +146,20 @@ function buildWebViewSafeAreaScript(topOffset: number) {
 `;
 }
 
-// Exposes the native install-device id as a global before any page script runs, so
-// the web app's own request layer can read it and attach it as a header itself —
-// the WebView's `source.headers` only covers the initial document request, not
-// subsequent fetch/XHR calls the page makes.
-function buildInstallDeviceIdScript(installDeviceId: string) {
+// Exposes the native device-identity context as a global before any page script
+// runs, so the web app's own request layer can read it and attach the identity
+// headers itself — the WebView's `source.headers` only covers the initial
+// document request, not the subsequent fetch/XHR/streaming calls the page makes
+// for the consultation/trial APIs. See NATIVE_DEVICE_IDENTITY.md for the contract.
+function buildNativeContextScript(nativeContext: NativeContext) {
   return `
     (function () {
-      window.__VODA_INSTALL_DEVICE_ID__ = ${JSON.stringify(installDeviceId)};
+      window.__VODA_NATIVE__ = ${JSON.stringify({
+        platform: nativeContext.platform,
+        deviceId: nativeContext.deviceId,
+        guestId: nativeContext.guestId,
+        appVersion: nativeContext.appVersion,
+      })};
     })();
     true;
   `;
@@ -210,8 +223,10 @@ function AppContent() {
   const [webViewKey, setWebViewKey] = useState(0);
   const [webViewUrl, setWebViewUrl] = useState(WEBVIEW_URL);
   const lastHandledDeepLinkRef = useRef<string | null>(null);
-  // null = not resolved yet, '' = resolution failed (proceed without the header).
-  const [installDeviceId, setInstallDeviceId] = useState<string | null>(null);
+  // null = not resolved yet. getNativeContext() always resolves (falls back to a
+  // context with guestId: '' on failure) so the WebView is never permanently
+  // blocked from loading.
+  const [nativeContext, setNativeContext] = useState<NativeContext | null>(null);
   // Non-null while capturing a consultation-result snapshot: temporarily grows
   // `container` (and the WebView filling it) past screen bounds so the full
   // (unscrolled) content is captured, per webview-native-screenshot-request.md.
@@ -228,12 +243,19 @@ function AppContent() {
 
   useEffect(() => {
     let isMounted = true;
-    getInstallDeviceId()
-      .then((id) => {
-        if (isMounted) setInstallDeviceId(id);
+    getNativeContext()
+      .then((context) => {
+        if (isMounted) setNativeContext(context);
       })
       .catch(() => {
-        if (isMounted) setInstallDeviceId('');
+        if (isMounted) {
+          setNativeContext({
+            platform: Platform.OS === 'ios' ? 'ios' : 'android',
+            deviceId: null,
+            guestId: '',
+            appVersion: null,
+          });
+        }
       });
     return () => {
       isMounted = false;
@@ -247,18 +269,19 @@ function AppContent() {
     setWebViewKey((key) => key + 1);
   }, []);
 
-  const handleResetInstallDeviceId = useCallback(() => {
-    Alert.alert('Device ID 초기화', '이 기기의 install device id를 새로 발급받고 웹뷰를 다시 로드합니다.', [
+  const handleResetGuestId = useCallback(() => {
+    Alert.alert('Guest ID 초기화', '이 기기의 guest id를 새로 발급받고 웹뷰를 다시 로드합니다.', [
       { text: '취소', style: 'cancel' },
       {
         text: '초기화',
         style: 'destructive',
         onPress: async () => {
-          await clearInstallDeviceId();
-          const nextId = await getInstallDeviceId();
-          setInstallDeviceId(nextId);
+          await clearGuestId();
+          resetNativeContextCache();
+          const nextContext = await getNativeContext();
+          setNativeContext(nextContext);
           resetWebView();
-          Alert.alert('완료', `새 device id: ${nextId}`);
+          Alert.alert('완료', `새 guest id: ${nextContext.guestId || '(발급 실패)'}`);
         },
       },
     ]);
@@ -428,19 +451,28 @@ function AppContent() {
         >
           {hasError ? (
             renderError()
-          ) : installDeviceId === null ? null : (
+          ) : nativeContext === null ? null : (
             <WebView
               key={webViewKey}
               ref={webViewRef}
               source={{
                 uri: webViewUrl,
-                headers: installDeviceId
-                  ? { [INSTALL_DEVICE_ID_HEADER]: installDeviceId }
-                  : undefined,
+                // Secondary channel: covers only the initial document request.
+                // The API calls are gated on the injected `window.__VODA_NATIVE__`
+                // global instead (see buildNativeContextScript).
+                headers: {
+                  [DEVICE_PLATFORM_HEADER]: nativeContext.platform,
+                  ...(nativeContext.deviceId
+                    ? { [DEVICE_ID_HEADER]: nativeContext.deviceId }
+                    : {}),
+                  ...(nativeContext.guestId
+                    ? { [GUEST_ID_HEADER]: nativeContext.guestId }
+                    : {}),
+                },
               }}
               style={styles.webView}
               applicationNameForUserAgent={APP_USER_AGENT_SUFFIX}
-              injectedJavaScriptBeforeContentLoaded={buildInstallDeviceIdScript(installDeviceId)}
+              injectedJavaScriptBeforeContentLoaded={buildNativeContextScript(nativeContext)}
               injectedJavaScript={buildWebViewSafeAreaScript(insets.top)}
               onLoadStart={handleLoadStart}
               onLoad={finishLoading}
@@ -481,8 +513,8 @@ function AppContent() {
           {__DEV__ && !isCapturingPixels && (
             <TouchableOpacity
               style={styles.debugResetButton}
-              onPress={handleResetInstallDeviceId}
-              accessibilityLabel="Device ID 초기화 (QA 전용)"
+              onPress={handleResetGuestId}
+              accessibilityLabel="Guest ID 초기화 (QA 전용)"
             >
               <Text style={styles.debugResetButtonText}>ID 초기화</Text>
             </TouchableOpacity>
