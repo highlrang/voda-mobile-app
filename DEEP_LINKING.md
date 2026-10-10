@@ -19,7 +19,9 @@
 앞에 붙여서 돌리면 개발이다. (`npm run build:apk:dev` 가 이걸 대신 해준다.)
 
 > 환경변수를 바꾼 뒤 빌드가 이전 값을 물고 있으면 `npx expo start --clear` 로 Metro 캐시를 비운다.
-> `build:apk:dev` / `build:aab:prod` 스크립트는 `gradlew clean` 을 포함하고 있다.
+> `build:apk:dev` / `build:aab:prod` 스크립트는 `./gradlew clean` 을 **별도 호출**로 먼저 돌린다
+> (`./gradlew clean assembleRelease` 처럼 한 호출에 묶으면 reanimated/worklets prefab 순서 문제로
+> 빌드가 깨진다 — [ANDROID_RELEASE_APK.md](./ANDROID_RELEASE_APK.md#clean-build) 참고).
 
 ## 딥링크 URL
 
@@ -30,13 +32,16 @@
 | 용도 | 딥링크 URL | 열리는 웹 주소 (개발 예시) |
 | --- | --- | --- |
 | 이메일 인증 완료 | `voda://auth/verified` | `https://voda-dev.ppiyakworld.com/auth/verified` |
-| 비밀번호 재설정 | `voda://auth/password-reset` | `https://voda-dev.ppiyakworld.com/auth/password-reset` |
+| 비밀번호 재설정 | `voda://auth/password-reset` | `https://voda-dev.ppiyakworld.com/password-reset` |
+
+> 비밀번호 재설정은 웹 경로가 `/auth` 아래가 아니라 `/password-reset` 이라서, 앱이 경로를 바꿔서 연다
+> (`App.tsx` 의 `DEEP_LINK_WEB_PATH_MAP`). 그 외 경로는 그대로 전달된다.
 
 쿼리 파라미터(토큰 등)는 그대로 전달된다:
 
 ```
 voda://auth/verified?token=abc123
-voda://auth/password-reset?token=abc123
+voda://auth/password-reset?resetToken=abc123   → /password-reset?resetToken=abc123
 ```
 
 백엔드 설정값 예시:

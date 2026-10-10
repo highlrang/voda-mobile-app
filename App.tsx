@@ -44,9 +44,14 @@ const APP_DEEP_LINK_SCHEME = 'voda';
 const UNIVERSAL_LINK_HOST = 'voda.ppiyakworld.com';
 // 앱이 받아서 WebView로 넘겨주는 딥링크 경로. 여기서 시작하는 경로만 허용하고,
 // 나머지(쿼리스트링·해시 포함)는 그대로 현재 WEBVIEW_ORIGIN 뒤에 붙여 전달한다.
-//   voda://auth/verified?token=...        → ${WEBVIEW_ORIGIN}/auth/verified?token=...
-//   voda://auth/password-reset?token=...  → ${WEBVIEW_ORIGIN}/auth/password-reset?token=...
+//   voda://auth/verified?token=...             → ${WEBVIEW_ORIGIN}/auth/verified?token=...
+//   voda://auth/password-reset?resetToken=...  → ${WEBVIEW_ORIGIN}/password-reset?resetToken=...
 const DEEP_LINK_ALLOWED_PATH_PREFIXES = ['/auth/'];
+// 딥링크 경로와 웹 경로가 다른 경우의 매핑. 여기 없는 경로는 그대로 전달한다.
+// (웹의 비밀번호 재설정 페이지는 /auth 아래가 아니라 /password-reset 이다.)
+const DEEP_LINK_WEB_PATH_MAP: Record<string, string> = {
+  '/auth/password-reset': '/password-reset',
+};
 
 // ─── Injected scripts ─────────────────────────────────────────────────────────
 
@@ -179,7 +184,10 @@ function normalizeDeepLinkPath(pathname: string) {
   const isAllowed = DEEP_LINK_ALLOWED_PATH_PREFIXES.some((prefix) =>
     normalized.startsWith(prefix),
   );
-  return isAllowed ? normalized : null;
+  if (!isAllowed) {
+    return null;
+  }
+  return DEEP_LINK_WEB_PATH_MAP[normalized] ?? normalized;
 }
 
 function getWebViewUrlFromDeepLink(url: string) {
