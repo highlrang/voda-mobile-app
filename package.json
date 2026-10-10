@@ -8,8 +8,8 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "typecheck": "tsc --noEmit",
-    "build:apk:dev": "cd android && EXPO_PUBLIC_WEBVIEW_ORIGIN=https://voda-dev.ppiyakworld.com ./gradlew clean assembleRelease",
-    "build:aab:prod": "cd android && ./gradlew clean bundleRelease"
+    "build:apk:dev": "cd android && ./gradlew clean && EXPO_PUBLIC_WEBVIEW_ORIGIN=https://voda-dev.ppiyakworld.com ./gradlew assembleRelease",
+    "build:aab:prod": "cd android && ./gradlew clean && ./gradlew bundleRelease"
   },
   "dependencies": {
     "babel-preset-expo": "~54.0.10",

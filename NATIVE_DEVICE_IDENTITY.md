@@ -5,17 +5,36 @@
 
 ## 네이티브가 하는 일
 
-`src/lib/nativeContext.ts` 가 아래 값을 한 번 조립해서, 페이지 스크립트보다
-먼저(`injectedJavaScriptBeforeContentLoaded`) 전역으로 주입한다.
+`src/lib/nativeContext.ts` 가 아래 값을 한 번 조립해서, `App.tsx` 의
+`injectedJavaScriptBeforeContentLoaded` 로 전역 주입한다.
+
+### 전역 객체
+
+- 이름: **`window.__VODA_NATIVE__`** (고정)
+- 순수 브라우저에는 존재하지 않음 → `typeof window.__VODA_NATIVE__ === 'object'` 로 앱 판별.
+  단, Android 는 주입이 페이지 스크립트보다 늦을 수 있으니 UA 병행 판별 권장(아래 "주입 시점").
 
 ```js
 window.__VODA_NATIVE__ = {
-  platform:   'ios' | 'android',
-  deviceId:   string | null,   // iOS: identifierForVendor(IDFV), Android: Settings.Secure.ANDROID_ID
-  guestId:    string,          // 앱이 생성한 UUID v4 (아래 "guestId 영속성")
-  appVersion: string | null,   // Application.nativeApplicationVersion
+  platform:   'ios' | 'android',   // 소문자 리터럴 2종. 네이티브는 'web' 을 절대 안 보냄
+  deviceId:   string | null,       // 아래 필드 스펙
+  guestId:    string,              // 항상 존재. 실패 시 '' (빈 문자열)
+  appVersion: string | null,       // Application.nativeApplicationVersion, 예 '1.0.0'
 };
 ```
+
+### 필드 스펙
+
+| 필드 | 타입 | 소스 | 형식 / 예시 | 안정성 |
+| --- | --- | --- | --- | --- |
+| `platform` | `'ios'\|'android'` | `Platform.OS` | 소문자 리터럴 | — |
+| `deviceId` (iOS) | `string\|null` | `Application.getIosIdForVendorAsync()` (IDFV) | 대문자 UUID, 하이픈 4개. `E5F6A7B8-1234-4C5D-9E0F-1A2B3C4D5E6F` | vendor 앱이 **하나라도** 설치돼 있으면 유지. 전부 삭제 후 재설치 시 변경 |
+| `deviceId` (Android) | `string\|null` | `Application.getAndroidId()` = `Settings.Secure.ANDROID_ID` | 소문자 hex 16자, 하이픈 없음. `9774d56d682e549c` | (앱 서명키, 사용자, 기기) 고정. 같은 서명키 재설치엔 유지, 팩토리 리셋 시 변경. 일부 불량 단말은 전 기기 동일값 → 서버 과신 금지 |
+| `guestId` | `string` | 앱 생성 UUID v4, `expo-secure-store` 영속 | 소문자 UUID, 하이픈 4개. `3f2a…` | iOS: 앱 삭제·재설치에도 유지(Keychain). Android: 재설치 시 소실(Keystore) |
+| `appVersion` | `string\|null` | `Application.nativeApplicationVersion` | iOS `CFBundleShortVersionString` / Android `versionName`. `'1.0.0'` | — |
+
+`deviceId` 가 `null` 인 경우: 조회 실패, 또는 IDFV 미할당(부팅 직후 등). → `X-Device-Id` 헤더 생략.
+`guestId` 가 `''` 인 경우: SecureStore 읽기 실패. → `X-Guest-Id` 헤더 생략.
 
 추가로, **최초 문서 요청에만** 아래 헤더를 같이 보낸다(`WebView source.headers`).
 페이지가 이후에 던지는 fetch/XHR/스트리밍에는 적용되지 않으므로 이건 보조 채널일 뿐이다.
@@ -35,26 +54,31 @@ window.__VODA_NATIVE__ = {
 - 저장 키는 히스토리상 `voda-install-device-id` 를 그대로 유지한다(기존 테스터의
   UUID 를 새로 발급하지 않기 위함). 헤더/스코프 이름만 `install` → `guest` 로 변경.
 
-### 주입 타이밍 (Android 주의)
+### 주입 시점 (페이지 스크립트 실행 전 보장 여부)
 
-`injectedJavaScriptBeforeContentLoaded` 는 iOS(`WKUserScript(.atDocumentStart)`)
-에서는 확실히 첫 스크립트보다 먼저지만, Android react-native-webview 에서는
-문서 로드 극초반에 약간 늦을 수 있다. 웹 인터셉터는 `window.__VODA_NATIVE__` 가
-아직 없을 가능성을 감안해 **호출 시점에 lazy 하게 읽어야** 한다(모듈 로드 시 1회
-캡처 금지).
+react-native-webview 13.15.0 의 `injectedJavaScriptBeforeContentLoaded` 구현 기준:
 
-### deviceId 가 null 일 수 있는 경우
+- **iOS — 보장됨.** `WKUserScript` + `WKUserScriptInjectionTimeAtDocumentStart`,
+  `forMainFrameOnly = YES`. 문서 엘리먼트 생성 직후·다른 리소스/스크립트 로드 전에 실행.
+- **Android — 보장 안 됨.** `WebViewClient.onPageStarted` 콜백에서 `evaluateJavascript`
+  로 실행한다(`WebViewCompat.addDocumentStartJavaScript` 미사용). 보통 페이지 스크립트보다
+  먼저지만, `<head>` 최상단 인라인 스크립트와는 레이스가 생길 수 있다.
 
-부팅 직후 IDFV 가 잠깐 null 이거나 조회 실패 시. 이 경우 `deviceId: null` 로 주입하고
-`X-Device-Id` 헤더는 생략한다. 웹은 guestId 만으로 폴백한다.
+그래서 웹 인터셉터는:
+
+1. `window.__VODA_NATIVE__` 를 **모듈 로드 시 1회 캡처하지 말고 매 호출 시점에 읽는다.**
+2. 앱 컨텍스트 판별은 UA 로 한다 — 앱이 `applicationNameForUserAgent` 로 UA 에
+   **`MY_APP`** 토큰을 붙인다. UA 에 `MY_APP` 이 있는데 `__VODA_NATIVE__` 가 아직 없으면,
+   짧게(예: 50ms×최대 10회) 재시도하거나 첫 API 호출을 그만큼 지연시킨다.
+3. UA 에 `MY_APP` 이 없으면 순수 웹으로 확정 처리(대기 불필요).
 
 ## 웹 프론트가 해야 하는 일 (계약)
 
 axios/fetch 인터셉터에서:
 
-- `window.__VODA_NATIVE__` 가 있으면 그 값 사용. 없으면 순수 웹으로 취급 →
-  `X-Guest-Id` 는 `localStorage` 에서 생성·영속, `X-Device-Platform: web`,
-  `X-Device-Id` 생략.
+- 앱(UA 에 `MY_APP`) → `window.__VODA_NATIVE__` 값 사용(위 "주입 시점" 재시도 규칙).
+  순수 웹 → `X-Guest-Id` 는 `localStorage` 에서 생성·영속, `X-Device-Platform: web`,
+  `X-Device-Id` 생략. (`platform: 'web'` 은 웹이 자기 쪽에서 채운다 — 네이티브는 안 보냄)
 - **API 오리진 화이트리스트에만** 3개 헤더 + `credentials: 'include'` 부착.
   전역 부착 금지(애널리틱스·CDN 등 서드파티로 기기 ID 유출 방지).
 - `/api/consult/stream` 은 `EventSource` 대신 fetch-스트리밍(`ReadableStream`)으로.

@@ -22,12 +22,27 @@
 
 이 방식은 내부 테스트용 APK를 빠르게 만드는 데는 충분하지만, Play Store 배포용으로는 쓰면 안 된다.
 
-빌드 명령:
+내부 테스트용이면 npm 스크립트를 쓰는 게 안전하다. 개발 웹 오리진 주입 + `clean` 분리가
+이미 처리돼 있다.
+
+```bash
+npm run build:apk:dev
+```
+
+Gradle 을 직접 부를 때는 **개발 APK 라도 오리진을 명시해야 한다.** 환경변수 없이
+`./gradlew assembleRelease` 만 돌리면 릴리스 빌드라서 운영 웹(`voda.ppiyakworld.com`)에 붙는다
+(결정 규칙은 [DEEP_LINKING.md](./DEEP_LINKING.md) 참고).
 
 ```bash
 cd android
-./gradlew assembleRelease
+./gradlew clean
+EXPO_PUBLIC_WEBVIEW_ORIGIN=https://voda-dev.ppiyakworld.com ./gradlew assembleRelease
 ```
+
+> `clean` 과 `assembleRelease` 는 **별도 호출**로 나눈다. 한 호출에 묶으면
+> (`./gradlew clean assembleRelease`) `react-native-reanimated` 의 CMake configure 가
+> `react-native-worklets` 의 prefab 패키지 생성보다 먼저 돌아
+> `prefab ... is not readable` 로 빌드가 깨진다.
 
 APK 생성 위치:
 
@@ -116,8 +131,13 @@ buildTypes {
 
 ```bash
 cd android
+./gradlew clean
 ./gradlew assembleRelease
 ```
+
+`clean` 은 별도 호출로 나눈다 (아래 [Clean Build](#clean-build) 의 주의 참고).
+개발 웹에 붙일 APK 면 `assembleRelease` 앞에
+`EXPO_PUBLIC_WEBVIEW_ORIGIN=https://voda-dev.ppiyakworld.com` 를 붙인다.
 
 ## Play Store 배포 (AAB)
 
@@ -132,7 +152,14 @@ AAB 도 같은 `signingConfigs.release` 로 서명된다.
 ### 빌드
 
 ```bash
+npm run build:aab:prod
+```
+
+또는 Gradle 직접 (`clean` 은 별도 호출):
+
+```bash
 cd android
+./gradlew clean
 ./gradlew bundleRelease
 ```
 
@@ -145,7 +172,7 @@ android/app/build/outputs/bundle/release/app-release.aab
 ### 버전 올리기
 
 업로드할 때마다 `android/app/build.gradle` 의 `versionCode` 를 이전 업로드보다 크게
-올려야 한다 (현재 `versionCode 1`). 같은 `versionCode` 는 Play Console 이 거부한다.
+올려야 한다 (현재 `versionCode 7`). 같은 `versionCode` 는 Play Console 이 거부한다.
 `versionName` ("1.0.0") 은 사용자에게 보이는 문자열이라 필수는 아니지만 같이 올리는 게 보통이다.
 
 ### 업로드
@@ -186,8 +213,28 @@ cd android
 ./gradlew assembleRelease
 ```
 
+> **`clean` 은 반드시 별도 호출로.** `./gradlew clean assembleRelease` 처럼 한 호출에 묶으면
+> `react-native-reanimated` 의 CMake configure 태스크(`configureCMakeRelWithDebInfo`)가
+> `react-native-worklets` 의 prefab 패키지가 만들어지기 전에 실행돼서 아래처럼 깨진다:
+>
+> ```
+> [CXX1429] ... prefab ...
+> Error: invalid value for <package_path>: directory
+>   ".../react-native-worklets/android/build/intermediates/prefab_package/release/prefab"
+>   is not readable.
+> ```
+>
+> reanimated 4.x + worklets 0.5.x + RN 0.81 조합의 gradle 플러그인 태스크 의존성 누락 이슈다.
+> `clean` 을 먼저 끝내면 다음 호출에서 worklets prefab 태스크가 reanimated 보다 먼저 스케줄된다.
+> 그래도 안 되면 worklets 를 먼저 명시적으로 빌드한다:
+>
+> ```bash
+> ./gradlew :react-native-worklets:assembleRelease
+> ./gradlew assembleRelease
+> ```
+
 ## Notes
 
 - 앱 패키지명은 `com.ppiyakworld.voda`다.
-- 현재 버전 정보는 `android/app/build.gradle` 기준 `versionCode 1`, `versionName "1.0.0"`이다.
+- 현재 버전 정보는 `android/app/build.gradle` 기준 `versionCode 7`, `versionName "1.0.0"`이다.
 - Play Store 제출 파일은 AAB다 → [Play Store 배포 (AAB)](#play-store-배포-aab).
