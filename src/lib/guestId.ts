@@ -22,8 +22,21 @@ const GUEST_ID_KEY = 'voda-install-device-id';
 let cachedGuestId: string | null = null;
 let pendingGuestId: Promise<string> | null = null;
 
+async function readExistingGuestId(): Promise<string | null> {
+  try {
+    return await SecureStore.getItemAsync(GUEST_ID_KEY);
+  } catch {
+    // The stored value can no longer be decrypted — e.g. the encrypted prefs
+    // came back from an Android backup/device transfer but the Keystore key
+    // did not. Left alone it fails on every launch and pins guestId to ''
+    // forever, so drop it and let a fresh id be issued.
+    await SecureStore.deleteItemAsync(GUEST_ID_KEY).catch(() => {});
+    return null;
+  }
+}
+
 async function readOrCreateGuestId(): Promise<string> {
-  const existing = await SecureStore.getItemAsync(GUEST_ID_KEY);
+  const existing = await readExistingGuestId();
   if (existing) {
     return existing;
   }

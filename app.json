@@ -16,7 +16,7 @@
     },
     "android": {
       "package": "com.ppiyakworld.voda",
-      "versionCode": 7,
+      "versionCode": 8,
       "blockedPermissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.READ_MEDIA_IMAGES",
@@ -69,7 +69,6 @@
         "expo-build-properties",
         {
           "android": {
-            "usesCleartextTraffic": true,
             "enableMinifyInReleaseBuilds": true,
             "enableShrinkResourcesInReleaseBuilds": true
           }

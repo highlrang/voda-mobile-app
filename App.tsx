@@ -37,7 +37,11 @@ const GUEST_ID_HEADER = 'X-Guest-Id';
 
 const APP_USER_AGENT_SUFFIX = 'MY_APP';
 const LOADING_TIMEOUT_MS = 12000;
-const WEB_BOTTOM_OFFSET = Platform.OS === 'android' ? 16 : 0;
+// Android floor for the bottom offset. Android WebView mostly reports
+// env(safe-area-inset-bottom) as 0, so under edge-to-edge (forced on Android 15+
+// for targetSdk 35+) the real nav-bar inset from useSafeAreaInsets() has to be
+// pushed in instead — a fixed 16px left the bottom CTA under the 3-button nav bar.
+const ANDROID_MIN_BOTTOM_OFFSET = 16;
 const APP_DEEP_LINK_SCHEME = 'voda';
 // 운영 유니버설/앱링크 호스트 (iOS associatedDomains / Android autoVerify 대상).
 // 개발 빌드는 커스텀 스킴(voda://)으로만 딥링크가 들어온다.
@@ -61,11 +65,11 @@ const DEEP_LINK_WEB_PATH_MAP: Record<string, string> = {
 // status bar) left page headers clipped under the status bar on devices/OS
 // versions where Android's edge-to-edge behavior draws the app behind it
 // regardless (mandatory on Android 15+ for apps targeting API 35+).
-function buildWebViewSafeAreaScript(topOffset: number) {
+function buildWebViewSafeAreaScript(topOffset: number, bottomOffset: number) {
   return `
   (function () {
     var topOffset = ${topOffset};
-    var bottomOffset = ${WEB_BOTTOM_OFFSET};
+    var bottomOffset = ${bottomOffset};
 
     function setViewportVars() {
       var viewport = window.visualViewport;
@@ -177,6 +181,74 @@ function buildNativeContextScript(nativeContext: NativeContext) {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+// react-native-webview doesn't re-export its ShouldStartLoadRequest type from the
+// package root; this is the subset we use.
+type ShouldStartLoadRequest = WebViewNavigation & { isTopFrame?: boolean };
+
+function getWebBottomOffset(bottomInset: number) {
+  return Platform.OS === 'android' ? Math.max(bottomInset, ANDROID_MIN_BOTTOM_OFFSET) : 0;
+}
+
+// Schemes the WebView itself can render. Anything else (tel:, mailto:, intent:,
+// kakaotalk:, market: …) has to be handed to the OS — left to the WebView it
+// fails with ERR_UNKNOWN_URL_SCHEME, which onError turns into the full-screen
+// error view.
+const WEBVIEW_HANDLED_SCHEMES = ['http:', 'https:', 'about:', 'data:', 'blob:', 'javascript:'];
+
+function getUrlScheme(url: string) {
+  const match = /^([a-z][a-z0-9+.-]*:)/i.exec(url);
+  return match ? match[1].toLowerCase() : null;
+}
+
+// Android `intent://…#Intent;scheme=…;package=…;S.browser_fallback_url=…;end`
+// can't go through Linking.openURL as-is (it isn't parsed with
+// Intent.parseUri), so rebuild the target app URL from it, then fall back to
+// the browser fallback URL, then to the app's Play Store page.
+function getIntentUrlCandidates(url: string) {
+  const [body, fragment = ''] = url.split('#Intent;');
+  const params = new Map<string, string>();
+  fragment
+    .replace(/;?end;?$/, '')
+    .split(';')
+    .forEach((part) => {
+      const separator = part.indexOf('=');
+      if (separator > 0) {
+        params.set(part.slice(0, separator), part.slice(separator + 1));
+      }
+    });
+
+  const candidates: string[] = [];
+  const scheme = params.get('scheme');
+  if (scheme) {
+    candidates.push(body.replace(/^intent:/i, `${scheme}:`));
+  }
+  const fallbackUrl = params.get('S.browser_fallback_url');
+  if (fallbackUrl) {
+    try {
+      candidates.push(decodeURIComponent(fallbackUrl));
+    } catch {
+      // Malformed fallback URL — skip it.
+    }
+  }
+  const packageName = params.get('package');
+  if (packageName) {
+    candidates.push(`market://details?id=${packageName}`);
+  }
+  return candidates;
+}
+
+async function openExternalUrl(url: string) {
+  const candidates = getUrlScheme(url) === 'intent:' ? getIntentUrlCandidates(url) : [url];
+  for (const candidate of candidates) {
+    try {
+      await Linking.openURL(candidate);
+      return;
+    } catch {
+      // Target app not installed / scheme not handled — try the next candidate.
+    }
+  }
+}
 
 function normalizeDeepLinkPath(pathname: string) {
   const collapsed = pathname.replace(/\/{2,}/g, '/').replace(/\/+$/, '');
@@ -302,6 +374,19 @@ function AppContent() {
       },
     ]);
   }, [resetWebView]);
+
+  const handleShouldStartLoadWithRequest = useCallback((request: ShouldStartLoadRequest) => {
+    const scheme = getUrlScheme(request.url);
+    if (!scheme || WEBVIEW_HANDLED_SCHEMES.includes(scheme)) {
+      return true;
+    }
+    // Only follow app-scheme navigations from the top frame, so an embedded
+    // iframe can't bounce the user out to another app on its own.
+    if (request.isTopFrame !== false) {
+      openExternalUrl(request.url);
+    }
+    return false;
+  }, []);
 
   const handleNavigationStateChange = useCallback((navState: WebViewNavigation) => {
     canGoBackRef.current = navState.canGoBack;
@@ -489,13 +574,17 @@ function AppContent() {
               style={styles.webView}
               applicationNameForUserAgent={APP_USER_AGENT_SUFFIX}
               injectedJavaScriptBeforeContentLoaded={buildNativeContextScript(nativeContext)}
-              injectedJavaScript={buildWebViewSafeAreaScript(insets.top)}
+              injectedJavaScript={buildWebViewSafeAreaScript(
+                insets.top,
+                getWebBottomOffset(insets.bottom),
+              )}
               onLoadStart={handleLoadStart}
               onLoad={finishLoading}
               onLoadEnd={finishLoading}
               onLoadProgress={handleLoadProgress}
               onError={handleError}
               onHttpError={handleError}
+              onShouldStartLoadWithRequest={handleShouldStartLoadWithRequest}
               onNavigationStateChange={handleNavigationStateChange}
               onMessage={handleWebViewMessage}
               pullToRefreshEnabled
