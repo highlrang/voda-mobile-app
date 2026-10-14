@@ -19,9 +19,8 @@
 앞에 붙여서 돌리면 개발이다. (`npm run build:apk:dev` 가 이걸 대신 해준다.)
 
 > 환경변수를 바꾼 뒤 빌드가 이전 값을 물고 있으면 `npx expo start --clear` 로 Metro 캐시를 비운다.
-> `build:apk:dev` / `build:aab:prod` 스크립트는 `./gradlew clean` 을 **별도 호출**로 먼저 돌린다
-> (`./gradlew clean assembleRelease` 처럼 한 호출에 묶으면 reanimated/worklets prefab 순서 문제로
-> 빌드가 깨진다 — [ANDROID_RELEASE_APK.md](./ANDROID_RELEASE_APK.md#clean-build) 참고).
+> `build:apk:dev` / `build:aab:prod` 스크립트는 빌드 전에 JS 번들 산출물을 지워서, Gradle 이 이전
+> 오리진이 박힌 번들을 재사용하지 않게 한다 ([ANDROID_RELEASE_APK.md](./ANDROID_RELEASE_APK.md#빌드-속도) 참고).
 
 ## 딥링크 URL
 

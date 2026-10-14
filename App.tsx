@@ -13,7 +13,6 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { WebViewMessageEvent, WebViewNavigation } from 'react-native-webview';
 import { WebView } from 'react-native-webview';
@@ -306,7 +305,6 @@ function AppContent() {
   const loadingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const canGoBackRef = useRef(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [webViewKey, setWebViewKey] = useState(0);
   const [webViewUrl, setWebViewUrl] = useState(WEBVIEW_URL);
@@ -353,7 +351,6 @@ function AppContent() {
   const resetWebView = useCallback(() => {
     setHasError(false);
     setIsLoading(true);
-    setIsRefreshing(false);
     setWebViewKey((key) => key + 1);
   }, []);
 
@@ -466,7 +463,6 @@ function AppContent() {
       lastHandledDeepLinkRef.current = url;
       setHasError(false);
       setIsLoading(true);
-      setIsRefreshing(false);
       setWebViewUrl(nextWebViewUrl);
       setWebViewKey((key) => key + 1);
     }
@@ -488,7 +484,6 @@ function AppContent() {
       loadingTimeoutRef.current = null;
     }
     setIsLoading(false);
-    setIsRefreshing(false);
   }, []);
 
   const handleLoadStart = useCallback(() => {
@@ -516,7 +511,6 @@ function AppContent() {
     }
     setHasError(true);
     setIsLoading(false);
-    setIsRefreshing(false);
   }, []);
 
   const renderError = () => (
@@ -528,7 +522,7 @@ function AppContent() {
   );
 
   return (
-    <GestureHandlerRootView style={styles.fill}>
+    <View style={styles.fill}>
       <StatusBar translucent={false} backgroundColor="#ffffff" barStyle="dark-content" />
       {/* edges={[]}: no native inset padding here — the top/bottom safe-area insets are
           handled inside the WebView itself via injected CSS (see buildWebViewSafeAreaScript),
@@ -601,10 +595,9 @@ function AppContent() {
             />
           )}
 
-          {(isLoading || isRefreshing) && !isCapturingPixels && (
+          {isLoading && !isCapturingPixels && (
             <View pointerEvents="none" style={styles.loadingOverlay}>
               <ActivityIndicator size="large" color="#1f6feb" />
-              {isRefreshing && <Text style={styles.refreshingText}>새로고침 중...</Text>}
             </View>
           )}
 
@@ -626,7 +619,7 @@ function AppContent() {
           )}
         </View>
       </SafeAreaView>
-    </GestureHandlerRootView>
+    </View>
   );
 }
 

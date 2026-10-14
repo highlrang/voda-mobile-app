@@ -14,8 +14,8 @@
 | versionCode | 상태 | 포함 항목 | 성격 |
 |---|---|---|---|
 | 7 | 배포됨 | — | 기준 빌드 |
-| **8** | 빌드 완료 | 1, 2, 3, 5 | 테스터가 겪을 수 있는 버그 수정 |
-| 9 | 예정 | 4, 8 | 앱 용량 축소, 안정화 |
+| 8 | 빌드 완료 | 1, 2, 3, 5 | 테스터가 겪을 수 있는 버그 수정 |
+| **9** | 빌드 중 | 4, 8 + 빌드 속도 개선 | 앱 용량 축소, 안정화 |
 | 10 | 예정 | 6, 7 | 안정성 모니터링, QA 도구 |
 
 ### versionCode 8 — 버전 설명(출시 노트)
@@ -26,9 +26,18 @@
 - 보안 강화: 암호화되지 않은 HTTP 통신 허용 설정 제거
 ```
 
-### versionCode 9 — 예정
-- 4. 사용하지 않는 tarot 화면과 관련 의존성 제거 (R8 minify와 함께 릴리스 빌드 회귀 테스트 필수)
-- 8. 사용하지 않는 새로고침 상태 정리
+### versionCode 9 — 버전 설명(출시 노트)
+```
+- 사용하지 않는 내부 화면과 라이브러리를 정리해 앱 용량 축소
+- 앱 안정성 개선
+```
+- 4. tarot 화면(`src/tarot/`)과 의존성 제거: `expo-linear-gradient`, `react-native-svg`,
+  `react-native-reanimated`, `react-native-worklets`, `react-native-gesture-handler`
+  (`GestureHandlerRootView`는 일반 `View`로 교체, babel reanimated 플러그인과 ProGuard keep 규칙 제거)
+- 8. 쓰지 않는 `isRefreshing` 상태와 "새로고침 중..." 문구 제거
+- 빌드 속도: ARM 두 종류만 빌드, `--parallel`, 힙 4GB, `clean` 대신 JS 번들만 지움 (`package.json` 스크립트)
+- **업로드 전 실기기 회귀 테스트 필수** (네이티브 모듈 제거 + R8): 앱 실행, 웹뷰 로드, 회전,
+  뒤로 가기, 상담 결과 이미지 저장, 딥링크(`voda://auth/...`), 외부 링크(`tel:`, 카카오)
 
 ### versionCode 10 — 예정
 - 6. 크래시/에러 수집 도구 도입
@@ -62,7 +71,7 @@
 
 ## 🟡 권장
 
-### 4. ⬜ 사용하지 않는 tarot 네이티브 화면과 의존성 제거
+### 4. ✅ 사용하지 않는 tarot 네이티브 화면과 의존성 제거 (versionCode 9)
 - `src/tarot/`(약 1,600줄)를 `App.tsx`에서 import하지 않는다.
 - `expo-linear-gradient`, `react-native-svg`는 tarot에서만 쓴다. `react-native-reanimated`도 앱 코드에서는 tarot에서만 쓴다.
   (`babel.config.js` 플러그인, `react-native-worklets` 함께 정리)
@@ -83,7 +92,7 @@
 
 ## ⚪ 사소한 것
 
-### 8. ⬜ `isRefreshing`이 true가 되는 경로가 없음
+### 8. ✅ `isRefreshing`이 true가 되는 경로가 없음 (versionCode 9, 상태 제거)
 - "새로고침 중..." 문구가 표시되지 않는다. 쓰지 않을 거라면 상태를 제거한다.
 
 ### 9. ⬜ `onHttpError`가 화면 전체를 에러 화면으로 바꿈

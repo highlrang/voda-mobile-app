@@ -22,8 +22,8 @@
 
 이 방식은 내부 테스트용 APK를 빠르게 만드는 데는 충분하지만, Play Store 배포용으로는 쓰면 안 된다.
 
-내부 테스트용이면 npm 스크립트를 쓰는 게 안전하다. 개발 웹 오리진 주입 + `clean` 분리가
-이미 처리돼 있다.
+내부 테스트용이면 npm 스크립트를 쓰는 게 안전하다. 개발 웹 오리진 주입과 빌드 속도 옵션이
+이미 들어 있다 (아래 [빌드 속도](#빌드-속도) 참고).
 
 ```bash
 npm run build:apk:dev
@@ -35,14 +35,13 @@ Gradle 을 직접 부를 때는 **개발 APK 라도 오리진을 명시해야 �
 
 ```bash
 cd android
-./gradlew clean
+rm -rf app/build/generated/assets/createBundleReleaseJsAndAssets app/build/generated/res/createBundleReleaseJsAndAssets
 EXPO_PUBLIC_WEBVIEW_ORIGIN=https://voda-dev.ppiyakworld.com ./gradlew assembleRelease
 ```
 
-> `clean` 과 `assembleRelease` 는 **별도 호출**로 나눈다. 한 호출에 묶으면
-> (`./gradlew clean assembleRelease`) `react-native-reanimated` 의 CMake configure 가
-> `react-native-worklets` 의 prefab 패키지 생성보다 먼저 돌아
-> `prefab ... is not readable` 로 빌드가 깨진다.
+> JS 번들 산출물을 먼저 지우는 이유: Gradle 은 `EXPO_PUBLIC_WEBVIEW_ORIGIN` 변경을 번들 태스크의
+> 입력으로 보지 않는다. 그래서 개발 APK → 운영 AAB 를 연달아 빌드하면 이전 오리진이 박힌 번들이
+> 재사용될 수 있다. 번들만 지우면 네이티브(C++) 캐시는 살리면서 이 문제를 피할 수 있다.
 
 APK 생성 위치:
 
@@ -130,12 +129,9 @@ buildTypes {
 ### 4. Release APK 다시 빌드
 
 ```bash
-cd android
-./gradlew clean
-./gradlew assembleRelease
+npm run build:apk:dev
 ```
 
-`clean` 은 별도 호출로 나눈다 (아래 [Clean Build](#clean-build) 의 주의 참고).
 개발 웹에 붙일 APK 면 `assembleRelease` 앞에
 `EXPO_PUBLIC_WEBVIEW_ORIGIN=https://voda-dev.ppiyakworld.com` 를 붙인다.
 
@@ -155,12 +151,12 @@ AAB 도 같은 `signingConfigs.release` 로 서명된다.
 npm run build:aab:prod
 ```
 
-또는 Gradle 직접 (`clean` 은 별도 호출):
+또는 Gradle 직접 (JS 번들 산출물을 먼저 지운다 — 위 Quick Build 참고):
 
 ```bash
 cd android
-./gradlew clean
-./gradlew bundleRelease
+rm -rf app/build/generated/assets/createBundleReleaseJsAndAssets app/build/generated/res/createBundleReleaseJsAndAssets
+./gradlew bundleRelease --parallel -PreactNativeArchitectures=armeabi-v7a,arm64-v8a
 ```
 
 산출물 위치:
@@ -172,7 +168,8 @@ android/app/build/outputs/bundle/release/app-release.aab
 ### 버전 올리기
 
 업로드할 때마다 `android/app/build.gradle` 의 `versionCode` 를 이전 업로드보다 크게
-올려야 한다 (현재 `versionCode 7`). 같은 `versionCode` 는 Play Console 이 거부한다.
+올려야 한다 (현재 `versionCode 9`). `android/` 는 git 대상이 아니므로 `app.json` 의
+`android.versionCode` 도 **같이** 올린다. 버전별 변경 내역은 [APP_IMPROVEMENTS.md](./APP_IMPROVEMENTS.md) 참고. 같은 `versionCode` 는 Play Console 이 거부한다.
 `versionName` ("1.0.0") 은 사용자에게 보이는 문자열이라 필수는 아니지만 같이 올리는 게 보통이다.
 
 ### 업로드
@@ -188,9 +185,19 @@ android/app/build/outputs/bundle/release/app-release.aab
 업로드 키를 잃어버리면 Play Console 에서 재설정 요청이 가능하지만, 앱 서명 키는 복구 불가다.
 keystore 파일과 비밀번호는 안전한 곳에 백업해 둘 것.
 
-### 로컬에서 AAB 설치해보기 (선택)
+### 로컬에서 AAB 설치해보기 (실기기 회귀 테스트)
 
 AAB 는 `adb install` 로 바로 안 되고 [bundletool](https://github.com/google/bundletool) 이 필요하다.
+업로드할 파일과 **같은 산출물**(R8 축소 포함)을 테스트할 수 있어서, 네이티브 의존성을 바꾼 빌드는
+업로드 전에 이 방법으로 확인한다.
+
+```bash
+brew install bundletool   # 최초 1회
+adb devices               # USB 디버깅 켠 폰이 보이는지 확인
+```
+
+> 이미 Play 에서 설치한 앱이 있으면 서명 키가 달라(Play 앱 서명 vs 업로드 키) 덮어쓰기가 안 된다.
+> 먼저 `adb uninstall com.ppiyakworld.voda` 로 지운다. 이때 앱 데이터(guest id 포함)도 지워진다.
 
 ```bash
 cd android
@@ -203,35 +210,34 @@ bundletool build-apks \
 bundletool install-apks --apks=app-release.apks
 ```
 
+Play Console 의 **내부 앱 공유**(Internal app sharing)에 AAB 를 올리면, 심사 없이 설치 링크가 바로 나온다.
+USB 연결 없이 다른 테스터 폰에 깔 때 편하다.
+
+## 빌드 속도
+
+`build:apk:dev` / `build:aab:prod` 스크립트에 들어 있는 옵션:
+
+- `-PreactNativeArchitectures=armeabi-v7a,arm64-v8a`: 실제 폰(ARM)만 빌드한다. x86/x86_64 는
+  에뮬레이터·일부 크롬북용이라 뺐다. 에뮬레이터용 빌드가 필요하면 이 옵션 없이 Gradle 을 직접 부른다.
+- `--parallel`: 모듈을 병렬로 빌드한다.
+- `-Dorg.gradle.jvmargs='-Xmx4g …'`: R8/리소스 축소를 켠 상태에서 기본 2GB 힙은 부족하다.
+- `clean` 을 하지 않는다. C++ 캐시를 재사용하고, JS 번들 산출물만 지운다.
+
 ## Clean Build
 
-이전 빌드 산출물 때문에 문제가 생기면:
+네이티브 의존성을 추가/제거했거나 이전 빌드 산출물 때문에 문제가 생기면:
 
 ```bash
-cd android
-./gradlew clean
-./gradlew assembleRelease
+npm run build:clean
+npm run build:aab:prod   # 또는 build:apk:dev
 ```
 
-> **`clean` 은 반드시 별도 호출로.** `./gradlew clean assembleRelease` 처럼 한 호출에 묶으면
-> `react-native-reanimated` 의 CMake configure 태스크(`configureCMakeRelWithDebInfo`)가
-> `react-native-worklets` 의 prefab 패키지가 만들어지기 전에 실행돼서 아래처럼 깨진다:
->
-> ```
-> [CXX1429] ... prefab ...
-> Error: invalid value for <package_path>: directory
->   ".../react-native-worklets/android/build/intermediates/prefab_package/release/prefab"
->   is not readable.
-> ```
->
-> reanimated 4.x + worklets 0.5.x + RN 0.81 조합의 gradle 플러그인 태스크 의존성 누락 이슈다.
-> `clean` 을 먼저 끝내면 다음 호출에서 worklets prefab 태스크가 reanimated 보다 먼저 스케줄된다.
-> 그래도 안 되면 worklets 를 먼저 명시적으로 빌드한다:
->
-> ```bash
-> ./gradlew :react-native-worklets:assembleRelease
-> ./gradlew assembleRelease
-> ```
+> `build:clean` 은 `gradlew clean` 전에 `android/app/.cxx`(CMake 캐시)를 먼저 지운다. 네이티브 라이브러리를
+> 제거한 뒤에는 이 캐시가 없어진 라이브러리 경로를 참조해서 `externalNativeBuildCleanRelease` 가
+> `GLOB mismatch` / `Configuring incomplete` 로 실패하기 때문이다.
+
+> 예전에는 `clean` 과 빌드를 한 호출에 묶으면 reanimated/worklets 의 prefab 순서 문제로 빌드가
+> 깨져서 별도 호출로 나눴다. versionCode 9 에서 두 라이브러리를 제거하면서 이 문제는 없어졌다.
 
 ## Notes
 
