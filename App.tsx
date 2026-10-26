@@ -34,6 +34,10 @@ const DEVICE_PLATFORM_HEADER = 'X-Device-Platform';
 const DEVICE_ID_HEADER = 'X-Device-Id';
 const GUEST_ID_HEADER = 'X-Guest-Id';
 
+// Guest ID reset button: always in dev, and in release APKs built with
+// EXPO_PUBLIC_ENABLE_QA_TOOLS=true (build:apk:dev). Never set for the store AAB.
+const ENABLE_QA_TOOLS = __DEV__ || process.env.EXPO_PUBLIC_ENABLE_QA_TOOLS === 'true';
+
 const APP_USER_AGENT_SUFFIX = 'MY_APP';
 const LOADING_TIMEOUT_MS = 12000;
 // Android floor for the bottom offset. Android WebView mostly reports
@@ -67,10 +71,16 @@ const DEEP_LINK_WEB_PATH_MAP: Record<string, string> = {
 function buildWebViewSafeAreaScript(topOffset: number, bottomOffset: number) {
   return `
   (function () {
-    var topOffset = ${topOffset};
-    var bottomOffset = ${bottomOffset};
+    // Kept on window (not closed over) so buildSafeAreaUpdateScript() can swap in
+    // new insets after rotation without the resize listeners below restoring the
+    // values from the initial load.
+    window.__VODA_SAFE_AREA__ = { top: ${topOffset}, bottom: ${bottomOffset} };
+    var topOffset = window.__VODA_SAFE_AREA__.top;
+    var bottomOffset = window.__VODA_SAFE_AREA__.bottom;
 
     function setViewportVars() {
+      var topOffset = window.__VODA_SAFE_AREA__.top;
+      var bottomOffset = window.__VODA_SAFE_AREA__.bottom;
       var viewport = window.visualViewport;
       var viewportHeight = viewport && viewport.height ? viewport.height : window.innerHeight;
       var viewportWidth = viewport && viewport.width ? viewport.width : window.innerWidth;
@@ -112,7 +122,7 @@ function buildWebViewSafeAreaScript(topOffset: number, bottomOffset: number) {
         'html { background: inherit; min-height: var(--native-webview-height); }',
         'body {',
         '  min-height: var(--native-webview-height);',
-        '  padding-top: ' + topOffset + 'px !important;',
+        '  padding-top: var(--native-webview-top-offset) !important;',
         '  padding-bottom: max(env(safe-area-inset-bottom), var(--native-webview-bottom-offset)) !important;',
         '  overscroll-behavior-y: none;',
         '}',
@@ -144,6 +154,7 @@ function buildWebViewSafeAreaScript(topOffset: number, bottomOffset: number) {
     installViewportMeta();
     installStyle();
     setViewportVars();
+    window.__VODA_SET_VIEWPORT_VARS__ = setViewportVars;
 
     window.addEventListener('resize', setViewportVars);
     window.addEventListener('orientationchange', function () {
@@ -158,6 +169,20 @@ function buildWebViewSafeAreaScript(topOffset: number, bottomOffset: number) {
   })();
   true;
 `;
+}
+
+// `injectedJavaScript` only runs on page load, so inset changes after that
+// (rotation, nav-bar mode switch) are pushed into the already-loaded page here.
+function buildSafeAreaUpdateScript(topOffset: number, bottomOffset: number) {
+  return `
+    (function () {
+      window.__VODA_SAFE_AREA__ = { top: ${topOffset}, bottom: ${bottomOffset} };
+      if (window.__VODA_SET_VIEWPORT_VARS__) {
+        window.__VODA_SET_VIEWPORT_VARS__();
+      }
+    })();
+    true;
+  `;
 }
 
 // Exposes the native device-identity context as a global before any page script
@@ -322,10 +347,15 @@ function AppContent() {
   // pixels — hides the sibling overlays (which live inside `container`, the
   // capture target) so they don't get baked into the saved image.
   const [isCapturingPixels, setIsCapturingPixels] = useState(false);
+  const webBottomOffset = getWebBottomOffset(insets.bottom);
 
   useEffect(() => {
     ScreenOrientation.unlockAsync().catch(() => {});
   }, []);
+
+  useEffect(() => {
+    webViewRef.current?.injectJavaScript(buildSafeAreaUpdateScript(insets.top, webBottomOffset));
+  }, [insets.top, webBottomOffset]);
 
   useEffect(() => {
     let isMounted = true;
@@ -513,6 +543,19 @@ function AppContent() {
     setIsLoading(false);
   }, []);
 
+  // Only fires for the main document (react-native-webview checks isForMainFrame).
+  // A 4xx is answered by the web app's own error page, which has its own
+  // navigation, so let it render; a 5xx is usually a gateway/server page with no
+  // way back, so show the native retry screen.
+  const handleHttpError = useCallback(
+    ({ nativeEvent }: { nativeEvent: { statusCode: number } }) => {
+      if (nativeEvent.statusCode >= 500) {
+        handleError();
+      }
+    },
+    [handleError],
+  );
+
   const renderError = () => (
     <View style={styles.errorContainer}>
       <Text style={styles.errorTitle}>페이지를 불러올 수 없습니다</Text>
@@ -568,16 +611,13 @@ function AppContent() {
               style={styles.webView}
               applicationNameForUserAgent={APP_USER_AGENT_SUFFIX}
               injectedJavaScriptBeforeContentLoaded={buildNativeContextScript(nativeContext)}
-              injectedJavaScript={buildWebViewSafeAreaScript(
-                insets.top,
-                getWebBottomOffset(insets.bottom),
-              )}
+              injectedJavaScript={buildWebViewSafeAreaScript(insets.top, webBottomOffset)}
               onLoadStart={handleLoadStart}
               onLoad={finishLoading}
               onLoadEnd={finishLoading}
               onLoadProgress={handleLoadProgress}
               onError={handleError}
-              onHttpError={handleError}
+              onHttpError={handleHttpError}
               onShouldStartLoadWithRequest={handleShouldStartLoadWithRequest}
               onNavigationStateChange={handleNavigationStateChange}
               onMessage={handleWebViewMessage}
@@ -608,7 +648,7 @@ function AppContent() {
             </View>
           )}
 
-          {__DEV__ && !isCapturingPixels && (
+          {ENABLE_QA_TOOLS && !isCapturingPixels && (
             <TouchableOpacity
               style={styles.debugResetButton}
               onPress={handleResetGuestId}

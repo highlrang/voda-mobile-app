@@ -3,7 +3,7 @@
     "name": "Voda",
     "slug": "voda-mobile-app",
     "scheme": "voda",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "icon": "./assets/icon.png",
     "orientation": "default",
     "userInterfaceStyle": "automatic",
@@ -16,7 +16,7 @@
     },
     "android": {
       "package": "com.ppiyakworld.voda",
-      "versionCode": 9,
+      "versionCode": 10,
       "blockedPermissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.READ_MEDIA_IMAGES",

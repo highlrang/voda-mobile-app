@@ -15,8 +15,8 @@
 |---|---|---|---|
 | 7 | 배포됨 | — | 기준 빌드 |
 | 8 | 빌드 완료 | 1, 2, 3, 5 | 테스터가 겪을 수 있는 버그 수정 |
-| **9** | 빌드 완료 | 4, 8 + 빌드 속도 개선 | 앱 용량 축소, 안정화 |
-| 10 | 예정 | 6, 7 | 안정성 모니터링, QA 도구 |
+| 9 | 프로덕션 출시 (1.0.0) | 4, 8 + 빌드 속도 개선 | 앱 용량 축소, 안정화 |
+| **10** | 개발 중 (1.0.1) | 7, 9, 10 (+ 6 예정) | QA 도구, 에러 화면·회전 개선 |
 
 ### versionCode 8 — 버전 설명(출시 노트)
 ```
@@ -39,9 +39,15 @@
 - **업로드 전 실기기 회귀 테스트 필수** → [V9_DEVICE_TEST.md](./V9_DEVICE_TEST.md) (네이티브 모듈 제거 + R8): 앱 실행, 웹뷰 로드, 회전,
   뒤로 가기, 상담 결과 이미지 저장, 딥링크(`voda://auth/...`), 외부 링크(`tel:`, 카카오)
 
-### versionCode 10 — 예정
-- 6. 크래시/에러 수집 도구 도입
-- 7. 내부 테스트 APK에 Guest ID 초기화 버튼 노출
+### versionCode 10 — 버전 설명(출시 노트)
+```
+- 화면 회전 시 상단·하단 여백이 맞지 않던 문제 수정
+- 일부 페이지 오류 시 앱 전체가 오류 화면으로 바뀌던 문제 개선
+```
+- 7. `build:apk:dev`에서만 `EXPO_PUBLIC_ENABLE_QA_TOOLS=true`를 주입해 Guest ID 초기화 버튼 노출 (스토어 AAB는 제외)
+- 9. `onHttpError`: 5xx만 네이티브 에러 화면, 4xx는 웹의 에러 페이지를 그대로 보여줌
+- 10. inset이 바뀌면 `injectJavaScript`로 CSS 변수를 다시 주입 (`window.__VODA_SAFE_AREA__`)
+- 6. 크래시/에러 수집 도구 도입 — Sentry 계정·DSN 필요, 미반영
 - Play Console 권장 조치 (v9 프로덕션 출시 때 표시됨)
   - R8 최적화: `android/app/build.gradle`의 `proguard-android.txt` → `proguard-android-optimize.txt`
     (더 공격적인 최적화라 릴리스 전용 크래시 가능 → 내부 테스트 필수)
@@ -90,7 +96,7 @@
 ### 6. ⬜ 크래시/에러 수집 도구 도입 (예: `@sentry/react-native`)
 - 지금은 테스터 기기에서 생긴 네이티브 크래시나 JS 에러를 볼 방법이 없다.
 
-### 7. ⬜ 내부 테스트 APK에서 Guest ID 초기화 버튼 노출
+### 7. ✅ 내부 테스트 APK에서 Guest ID 초기화 버튼 노출
 - 지금은 `__DEV__` 조건이라 release로 빌드한 내부 테스트 APK에서는 보이지 않는다.
 - 예: `EXPO_PUBLIC_ENABLE_QA_TOOLS=true`를 `build:apk:dev`에서만 주입한다.
 
@@ -99,9 +105,9 @@
 ### 8. ✅ `isRefreshing`이 true가 되는 경로가 없음 (versionCode 9, 상태 제거)
 - "새로고침 중..." 문구가 표시되지 않는다. 쓰지 않을 거라면 상태를 제거한다.
 
-### 9. ⬜ `onHttpError`가 화면 전체를 에러 화면으로 바꿈
+### 9. ✅ `onHttpError`가 화면 전체를 에러 화면으로 바꿈
 - 메인 문서가 404/5xx를 받으면 앱 전체가 막힌다. 웹의 에러 페이지를 그대로 보여줄지 검토한다.
 
-### 10. ⬜ 회전 시 상단/하단 inset 재주입
+### 10. ✅ 회전 시 상단/하단 inset 재주입
 - `injectedJavaScript`는 로드할 때 한 번만 실행된다. 회전으로 inset이 바뀌면
   `injectJavaScript`로 CSS 변수를 다시 주입하는 게 좋다.
