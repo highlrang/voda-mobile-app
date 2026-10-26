@@ -16,16 +16,21 @@
 | 7 | 배포됨 | — | 기준 빌드 |
 | 8 | 빌드 완료 | 1, 2, 3, 5 | 테스터가 겪을 수 있는 버그 수정 |
 | 9 | 프로덕션 검토 중 (1.0.0) | 4, 8 + 빌드 속도 개선 | 앱 용량 축소, 안정화 |
-| **10** | 개발 중 (1.0.1) | 7, 9, 10 (+ 6 예정) | QA 도구, 에러 화면·회전 개선 |
+| **10** | 개발 중 (1.0.1) | 6, 7, 9, 10 | 에러 수집, QA 도구, 에러 화면·회전 개선 |
 
 ### 다음 순서
 1. v9 프로덕션 검토 통과 → 게시 (관리형 게시: 데이터 보안 선언 수정과 함께)
 2. 게시 후 1~3일 Play Console → Android vitals에서 크래시율·ANR 확인
 3. `feat/native-device-identity`(v9 출시 코드)를 main에 머지, `v1.0.0` 태그
-4. `feat/v10-stability`에서 `npm run build:aab:prod` → 내부 테스트 업로드 → Play에서 설치해 확인
+4. v10 업로드 **전에** Play Console 데이터 보안 선언에 **앱 정보 및 성능 → 비정상 종료 로그, 진단**을 추가
+   (수집됨 · 공유 안 함 · 필수 · 목적: 앱 기능/분석). 개인정보처리방침에도 오류 정보 수집을 명시
+5. 서버 `POST /api/client-logs/app-error` 배포 확인 (운영·개발 모두)
+6. `feat/v10-stability`에서 `npm run build:aab:prod` → 내부 테스트 업로드 → Play에서 설치해 확인
+   - 빌드가 끝나면 `release-artifacts/1.0.1-10/`에 매핑 파일이 생긴다. 백업해 둔다 (gitignore 대상)
    - 화면 회전: 가로/세로로 돌려도 상단 헤더가 상태 표시줄에, 하단 버튼이 내비게이션 바에 가려지지 않는지
    - Guest ID 초기화 버튼(화면 오른쪽 아래 "ID 초기화")이 스토어 빌드에 **보이지 않는지**
-5. 이상 없으면 v10 프로덕션 출시 (이때부터 단계적 출시 사용)
+   - 비행기 모드로 앱 실행 → 다시 연결 → 서버 로그에 `CLIENT_APP_ERROR`(NETWORK_ERROR)가 남는지
+7. 이상 없으면 v10 프로덕션 출시 (이때부터 단계적 출시 사용)
 
 ### versionCode 8 — 버전 설명(출시 노트)
 ```
@@ -52,11 +57,23 @@
 ```
 - 화면 회전 시 상단·하단 여백이 맞지 않던 문제 수정
 - 일부 페이지 오류 시 앱 전체가 오류 화면으로 바뀌던 문제 개선
+- 앱 안정성 개선
 ```
 - 7. `build:apk:dev`에서만 `EXPO_PUBLIC_ENABLE_QA_TOOLS=true`를 주입해 Guest ID 초기화 버튼 노출 (스토어 AAB는 제외)
 - 9. `onHttpError`: 5xx만 네이티브 에러 화면, 4xx는 웹의 에러 페이지를 그대로 보여줌
 - 10. inset이 바뀌면 `injectJavaScript`로 CSS 변수를 다시 주입 (`window.__VODA_SAFE_AREA__`)
-- 6. 크래시/에러 수집 — 미반영. 네이티브 크래시는 Android vitals로 보고, 필요하면 JS 에러만 자체 서버로 전송하는 방안 검토 (항목 6 참고)
+- 6. 자체 서버로 앱 에러 전송 (`src/lib/appErrorReporter.ts`, `POST /api/client-logs/app-error`)
+  - JS_ERROR(전역 핸들러), UNHANDLED_REJECTION(Hermes, 릴리스만), RENDER_ERROR(`src/AppErrorBoundary.tsx`),
+    NETWORK_ERROR(웹뷰 메인 문서 로드 실패·5xx)
+  - 디스크 큐(최근 20건) → 다음 실행·포그라운드 복귀·웹뷰 로드 성공 때 1초 간격으로 순서대로 전송.
+    fatal 에러는 저장만 하고 다음 실행 때 전송. 같은 에러는 10분간 중복 제거. 전송 실패는 다시 리포트하지 않음
+  - URL 쿼리·해시와 이메일은 지워서 보냄
+  - 헤더: `X-Device-Platform`, `X-App-Version`, `X-App-Build`, `X-Guest-Id`, `X-Device-Id`.
+    `window.__VODA_NATIVE__`에 `appBuild` 추가 (웹은 `X-App-Build` 헤더를 붙여야 함)
+  - 매핑 보관: `build:aab:prod`가 끝나면 `scripts/archive-release-artifacts.sh`가 R8 mapping과 JS source map을
+    `release-artifacts/<버전>-<코드>/`에 복사 (v9는 `1.0.0-9`로 보관 완료)
+  - 미반영: NATIVE_CRASH(네이티브 코드 필요 → Android vitals로 확인), Authorization(토큰은 웹이 가지고 있음),
+    iOS deviceModel 정확한 기종(`expo-device` 필요)
 - Play Console 권장 조치 (v9 프로덕션 출시 때 표시됨)
   - R8 최적화: `android/app/build.gradle`의 `proguard-android.txt` → `proguard-android-optimize.txt`
     (더 공격적인 최적화라 릴리스 전용 크래시 가능 → 내부 테스트 필수)
@@ -102,8 +119,9 @@
 - 생성된 매니페스트에는 원래 반영돼 있지 않았기 때문에, `app.json`에서만 제거했다(다음 prebuild 때 들어가는 것을 막음).
   debug 매니페스트의 cleartext 허용(Metro 연결용)은 그대로 둔다.
 
-### 6. ⬜ 크래시/에러 수집 도구 도입 (예: `@sentry/react-native`)
+### 6. ✅ 크래시/에러 수집 (versionCode 10, Sentry 대신 자체 서버)
 - 지금은 테스터 기기에서 생긴 네이티브 크래시나 JS 에러를 볼 방법이 없다.
+- 네이티브 크래시는 Android vitals, 앱 JS 에러는 `/api/client-logs/app-error`로 수집한다 (위 versionCode 10 참고).
 
 ### 7. ✅ 내부 테스트 APK에서 Guest ID 초기화 버튼 노출
 - 지금은 `__DEV__` 조건이라 release로 빌드한 내부 테스트 APK에서는 보이지 않는다.

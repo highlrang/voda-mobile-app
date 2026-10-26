@@ -23,16 +23,20 @@ import {
   ConsultationResultSnapshotPermissionError,
   parseConsultationResultSnapshotRequest,
 } from './src/lib/consultationResultSnapshot';
+import { AppErrorBoundary } from './src/AppErrorBoundary';
+import {
+  flushAppErrors,
+  getRouteFromUrl,
+  reportAppError,
+  setAppErrorRoute,
+} from './src/lib/appErrorReporter';
 import { clearGuestId } from './src/lib/guestId';
 import {
   getNativeContext,
+  nativeContextHeaders,
   resetNativeContextCache,
   type NativeContext,
 } from './src/lib/nativeContext';
-
-const DEVICE_PLATFORM_HEADER = 'X-Device-Platform';
-const DEVICE_ID_HEADER = 'X-Device-Id';
-const GUEST_ID_HEADER = 'X-Guest-Id';
 
 // Guest ID reset button: always in dev, and in release APKs built with
 // EXPO_PUBLIC_ENABLE_QA_TOOLS=true (build:apk:dev). Never set for the store AAB.
@@ -198,6 +202,7 @@ function buildNativeContextScript(nativeContext: NativeContext) {
         deviceId: nativeContext.deviceId,
         guestId: nativeContext.guestId,
         appVersion: nativeContext.appVersion,
+        appBuild: nativeContext.appBuild,
       })};
     })();
     true;
@@ -317,7 +322,9 @@ function getWebViewUrlFromDeepLink(url: string) {
 export default function App() {
   return (
     <SafeAreaProvider>
-      <AppContent />
+      <AppErrorBoundary>
+        <AppContent />
+      </AppErrorBoundary>
     </SafeAreaProvider>
   );
 }
@@ -370,6 +377,7 @@ function AppContent() {
             deviceId: null,
             guestId: '',
             appVersion: null,
+            appBuild: null,
           });
         }
       });
@@ -417,6 +425,7 @@ function AppContent() {
 
   const handleNavigationStateChange = useCallback((navState: WebViewNavigation) => {
     canGoBackRef.current = navState.canGoBack;
+    setAppErrorRoute(navState.url);
   }, []);
 
   const handleWebViewMessage = useCallback((event: WebViewMessageEvent) => {
@@ -516,6 +525,12 @@ function AppContent() {
     setIsLoading(false);
   }, []);
 
+  // A page made it through, so the network is back — send what queued up offline.
+  const handleLoad = useCallback(() => {
+    finishLoading();
+    flushAppErrors();
+  }, [finishLoading]);
+
   const handleLoadStart = useCallback(() => {
     if (loadingTimeoutRef.current) {
       clearTimeout(loadingTimeoutRef.current);
@@ -543,13 +558,34 @@ function AppContent() {
     setIsLoading(false);
   }, []);
 
+  // Main-document load failure (offline, DNS, timeout, TLS…).
+  const handleLoadError = useCallback(
+    ({ nativeEvent }: { nativeEvent: { code: number; description: string; url: string } }) => {
+      reportAppError({
+        errorType: 'NETWORK_ERROR',
+        error: new Error(`WebView load failed: ${nativeEvent.description}`),
+        route: getRouteFromUrl(nativeEvent.url),
+        details: { code: nativeEvent.code },
+      });
+      handleError();
+    },
+    [handleError],
+  );
+
   // Only fires for the main document (react-native-webview checks isForMainFrame).
   // A 4xx is answered by the web app's own error page, which has its own
-  // navigation, so let it render; a 5xx is usually a gateway/server page with no
-  // way back, so show the native retry screen.
+  // navigation, so let it render (and isn't reported — it's an expected
+  // response); a 5xx is usually a gateway/server page with no way back, so
+  // report it and show the native retry screen.
   const handleHttpError = useCallback(
-    ({ nativeEvent }: { nativeEvent: { statusCode: number } }) => {
+    ({ nativeEvent }: { nativeEvent: { statusCode: number; url: string } }) => {
       if (nativeEvent.statusCode >= 500) {
+        reportAppError({
+          errorType: 'NETWORK_ERROR',
+          error: new Error(`WebView HTTP ${nativeEvent.statusCode}`),
+          route: getRouteFromUrl(nativeEvent.url),
+          details: { statusCode: nativeEvent.statusCode },
+        });
         handleError();
       }
     },
@@ -598,25 +634,17 @@ function AppContent() {
                 // Secondary channel: covers only the initial document request.
                 // The API calls are gated on the injected `window.__VODA_NATIVE__`
                 // global instead (see buildNativeContextScript).
-                headers: {
-                  [DEVICE_PLATFORM_HEADER]: nativeContext.platform,
-                  ...(nativeContext.deviceId
-                    ? { [DEVICE_ID_HEADER]: nativeContext.deviceId }
-                    : {}),
-                  ...(nativeContext.guestId
-                    ? { [GUEST_ID_HEADER]: nativeContext.guestId }
-                    : {}),
-                },
+                headers: nativeContextHeaders(nativeContext),
               }}
               style={styles.webView}
               applicationNameForUserAgent={APP_USER_AGENT_SUFFIX}
               injectedJavaScriptBeforeContentLoaded={buildNativeContextScript(nativeContext)}
               injectedJavaScript={buildWebViewSafeAreaScript(insets.top, webBottomOffset)}
               onLoadStart={handleLoadStart}
-              onLoad={finishLoading}
+              onLoad={handleLoad}
               onLoadEnd={finishLoading}
               onLoadProgress={handleLoadProgress}
-              onError={handleError}
+              onError={handleLoadError}
               onHttpError={handleHttpError}
               onShouldStartLoadWithRequest={handleShouldStartLoadWithRequest}
               onNavigationStateChange={handleNavigationStateChange}

@@ -9,7 +9,7 @@
     "ios": "expo run:ios",
     "typecheck": "tsc --noEmit",
     "build:apk:dev": "cd android && rm -rf app/build/generated/assets/createBundleReleaseJsAndAssets app/build/generated/res/createBundleReleaseJsAndAssets && EXPO_PUBLIC_WEBVIEW_ORIGIN=https://voda-dev.ppiyakworld.com EXPO_PUBLIC_ENABLE_QA_TOOLS=true ./gradlew assembleRelease --parallel -PreactNativeArchitectures=armeabi-v7a,arm64-v8a -Dorg.gradle.jvmargs='-Xmx4g -XX:MaxMetaspaceSize=1g'",
-    "build:aab:prod": "cd android && rm -rf app/build/generated/assets/createBundleReleaseJsAndAssets app/build/generated/res/createBundleReleaseJsAndAssets && ./gradlew bundleRelease --parallel -PreactNativeArchitectures=armeabi-v7a,arm64-v8a -Dorg.gradle.jvmargs='-Xmx4g -XX:MaxMetaspaceSize=1g'",
+    "build:aab:prod": "cd android && rm -rf app/build/generated/assets/createBundleReleaseJsAndAssets app/build/generated/res/createBundleReleaseJsAndAssets && ./gradlew bundleRelease --parallel -PreactNativeArchitectures=armeabi-v7a,arm64-v8a -Dorg.gradle.jvmargs='-Xmx4g -XX:MaxMetaspaceSize=1g' && cd .. && sh scripts/archive-release-artifacts.sh",
     "build:clean": "cd android && rm -rf app/.cxx && ./gradlew clean"
   },
   "dependencies": {
