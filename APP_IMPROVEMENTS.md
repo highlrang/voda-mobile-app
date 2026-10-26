@@ -15,8 +15,17 @@
 |---|---|---|---|
 | 7 | 배포됨 | — | 기준 빌드 |
 | 8 | 빌드 완료 | 1, 2, 3, 5 | 테스터가 겪을 수 있는 버그 수정 |
-| 9 | 프로덕션 출시 (1.0.0) | 4, 8 + 빌드 속도 개선 | 앱 용량 축소, 안정화 |
+| 9 | 프로덕션 검토 중 (1.0.0) | 4, 8 + 빌드 속도 개선 | 앱 용량 축소, 안정화 |
 | **10** | 개발 중 (1.0.1) | 7, 9, 10 (+ 6 예정) | QA 도구, 에러 화면·회전 개선 |
+
+### 다음 순서
+1. v9 프로덕션 검토 통과 → 게시 (관리형 게시: 데이터 보안 선언 수정과 함께)
+2. 게시 후 1~3일 Play Console → Android vitals에서 크래시율·ANR 확인
+3. `feat/native-device-identity`(v9 출시 코드)를 main에 머지, `v1.0.0` 태그
+4. `feat/v10-stability`에서 `npm run build:aab:prod` → 내부 테스트 업로드 → Play에서 설치해 확인
+   - 화면 회전: 가로/세로로 돌려도 상단 헤더가 상태 표시줄에, 하단 버튼이 내비게이션 바에 가려지지 않는지
+   - Guest ID 초기화 버튼(화면 오른쪽 아래 "ID 초기화")이 스토어 빌드에 **보이지 않는지**
+5. 이상 없으면 v10 프로덕션 출시 (이때부터 단계적 출시 사용)
 
 ### versionCode 8 — 버전 설명(출시 노트)
 ```
@@ -47,7 +56,7 @@
 - 7. `build:apk:dev`에서만 `EXPO_PUBLIC_ENABLE_QA_TOOLS=true`를 주입해 Guest ID 초기화 버튼 노출 (스토어 AAB는 제외)
 - 9. `onHttpError`: 5xx만 네이티브 에러 화면, 4xx는 웹의 에러 페이지를 그대로 보여줌
 - 10. inset이 바뀌면 `injectJavaScript`로 CSS 변수를 다시 주입 (`window.__VODA_SAFE_AREA__`)
-- 6. 크래시/에러 수집 도구 도입 — Sentry 계정·DSN 필요, 미반영
+- 6. 크래시/에러 수집 — 미반영. 네이티브 크래시는 Android vitals로 보고, 필요하면 JS 에러만 자체 서버로 전송하는 방안 검토 (항목 6 참고)
 - Play Console 권장 조치 (v9 프로덕션 출시 때 표시됨)
   - R8 최적화: `android/app/build.gradle`의 `proguard-android.txt` → `proguard-android-optimize.txt`
     (더 공격적인 최적화라 릴리스 전용 크래시 가능 → 내부 테스트 필수)
