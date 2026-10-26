@@ -15,7 +15,7 @@
 |---|---|---|---|
 | 7 | 배포됨 | — | 기준 빌드 |
 | 8 | 빌드 완료 | 1, 2, 3, 5 | 테스터가 겪을 수 있는 버그 수정 |
-| **9** | 빌드 중 | 4, 8 + 빌드 속도 개선 | 앱 용량 축소, 안정화 |
+| **9** | 빌드 완료 | 4, 8 + 빌드 속도 개선 | 앱 용량 축소, 안정화 |
 | 10 | 예정 | 6, 7 | 안정성 모니터링, QA 도구 |
 
 ### versionCode 8 — 버전 설명(출시 노트)
@@ -36,12 +36,16 @@
   (`GestureHandlerRootView`는 일반 `View`로 교체, babel reanimated 플러그인과 ProGuard keep 규칙 제거)
 - 8. 쓰지 않는 `isRefreshing` 상태와 "새로고침 중..." 문구 제거
 - 빌드 속도: ARM 두 종류만 빌드, `--parallel`, 힙 4GB, `clean` 대신 JS 번들만 지움 (`package.json` 스크립트)
-- **업로드 전 실기기 회귀 테스트 필수** (네이티브 모듈 제거 + R8): 앱 실행, 웹뷰 로드, 회전,
+- **업로드 전 실기기 회귀 테스트 필수** → [V9_DEVICE_TEST.md](./V9_DEVICE_TEST.md) (네이티브 모듈 제거 + R8): 앱 실행, 웹뷰 로드, 회전,
   뒤로 가기, 상담 결과 이미지 저장, 딥링크(`voda://auth/...`), 외부 링크(`tel:`, 카카오)
 
 ### versionCode 10 — 예정
 - 6. 크래시/에러 수집 도구 도입
 - 7. 내부 테스트 APK에 Guest ID 초기화 버튼 노출
+- Play Console 권장 조치 (v9 프로덕션 출시 때 표시됨)
+  - R8 최적화: `android/app/build.gradle`의 `proguard-android.txt` → `proguard-android-optimize.txt`
+    (더 공격적인 최적화라 릴리스 전용 크래시 가능 → 내부 테스트 필수)
+  - 비트맵 이미지 최적화: `assets/` 아이콘·스플래시 PNG 압축 또는 WebP 변환
 
 ## 🔴 긴급
 
