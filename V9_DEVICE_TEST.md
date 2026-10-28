@@ -39,7 +39,7 @@ bundletool build-apks \
   --bundle=app/build/outputs/bundle/release/app-release.aab \
   --output=/tmp/voda-v9.apks \
   --connected-device \
-  --ks=app/voda-release-key.keystore \
+  --ks=app/voda-release-key.jks \
   --ks-key-alias=voda-key-alias
 bundletool install-apks --apks=/tmp/voda-v9.apks
 ```

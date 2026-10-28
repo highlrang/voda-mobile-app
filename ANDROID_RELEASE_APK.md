@@ -66,7 +66,7 @@ adb install -r android/app/build/outputs/apk/release/app-release.apk
 ```bash
 keytool -genkeypair -v \
   -storetype PKCS12 \
-  -keystore voda-release-key.keystore \
+  -keystore voda-release-key.jks \
   -alias voda-key-alias \
   -keyalg RSA \
   -keysize 2048 \
@@ -80,7 +80,7 @@ keytool -genkeypair -v \
 `android/gradle.properties`에 아래 값을 추가한다.
 
 ```properties
-VODA_UPLOAD_STORE_FILE=voda-release-key.keystore
+VODA_UPLOAD_STORE_FILE=voda-release-key.jks
 VODA_UPLOAD_KEY_ALIAS=voda-key-alias
 VODA_UPLOAD_STORE_PASSWORD=your_store_password
 VODA_UPLOAD_KEY_PASSWORD=your_key_password
@@ -205,7 +205,7 @@ bundletool build-apks \
   --bundle=app/build/outputs/bundle/release/app-release.aab \
   --output=app-release.apks \
   --connected-device \
-  --ks=app/voda-release-key.keystore \
+  --ks=app/voda-release-key.jks \
   --ks-key-alias=voda-key-alias
 bundletool install-apks --apks=app-release.apks
 ```
