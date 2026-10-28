@@ -213,6 +213,24 @@ bundletool install-apks --apks=app-release.apks
 Play Console 의 **내부 앱 공유**(Internal app sharing)에 AAB 를 올리면, 심사 없이 설치 링크가 바로 나온다.
 USB 연결 없이 다른 테스터 폰에 깔 때 편하다.
 
+## 백업 (git에 없는 파일)
+
+업로드 키, 버전별 매핑 파일, 손으로 고친 `android/` 설정은 git에 올라가지 않는다.
+새 버전을 출시할 때마다 iCloud Drive로 백업한다.
+
+```bash
+sh scripts/backup-release.sh
+```
+
+- 위치: **iCloud Drive → `Voda-release-backup/`**
+  (`~/Library/Mobile Documents/com~apple~CloudDocs/Voda-release-backup/`)
+- 내용: `voda-release-key.jks`(업로드 키), `release-artifacts/`(버전별 R8 mapping·JS source map, v9 AAB),
+  `native-config/`(서명 설정이 들어간 `build.gradle`, `gradle.properties`, `proguard-rules.pro`, `AndroidManifest.xml`),
+  복구 방법을 적은 `README.md`
+- **비밀번호는 백업에 없다.** macOS 암호 앱에 "Voda Play 업로드 키" 항목으로 보관한다
+  (`VODA_UPLOAD_STORE_PASSWORD`, `VODA_UPLOAD_KEY_PASSWORD`).
+- 처음 백업: 2026-10-28 (v9 1.0.0, v10 1.0.1)
+
 ## 빌드 속도
 
 `build:apk:dev` / `build:aab:prod` 스크립트에 들어 있는 옵션:
