@@ -1,5 +1,5 @@
 import type { RefObject } from 'react';
-import type { View } from 'react-native';
+import { Platform, type View } from 'react-native';
 import * as MediaLibrary from 'expo-media-library';
 import { captureRef, releaseCapture } from 'react-native-view-shot';
 import type WebView from 'react-native-webview';
@@ -58,6 +58,10 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function toLocalFileUri(pathOrUri: string): string {
+  return pathOrUri.startsWith('file://') ? pathOrUri : `file://${pathOrUri}`;
 }
 
 const PRE_SCROLL_RESET_SETTLE_MS = 200;
@@ -204,12 +208,22 @@ export async function captureAndSaveConsultationResultSnapshot({
     }
 
     try {
-      const asset = await MediaLibrary.createAssetAsync(temporaryCaptureUri);
-      try {
-        await addAssetToAlbum(asset, CONSULTATION_RESULT_SNAPSHOT_ALBUM);
-      } catch {
-        // Best-effort only — the asset is already saved to the library at this
-        // point, so a failure to file it under the "Voda" album isn't fatal.
+      const localFileUri = toLocalFileUri(temporaryCaptureUri);
+      if (Platform.OS === 'ios') {
+        // `saveToLibraryAsync` is the iOS add-only path. `createAssetAsync`
+        // returns a PHAsset and our album helper then reads the photo library;
+        // that can fail when the user intentionally grants "Add Photos Only".
+        // Saving to the default Recents album is preferable to requiring full
+        // library access just to create/read a custom Voda album.
+        await MediaLibrary.saveToLibraryAsync(localFileUri);
+      } else {
+        const asset = await MediaLibrary.createAssetAsync(localFileUri);
+        try {
+          await addAssetToAlbum(asset, CONSULTATION_RESULT_SNAPSHOT_ALBUM);
+        } catch {
+          // Best-effort only — the asset is already saved to the library at this
+          // point, so a failure to file it under the "Voda" album isn't fatal.
+        }
       }
     } finally {
       releaseCapture(temporaryCaptureUri);
