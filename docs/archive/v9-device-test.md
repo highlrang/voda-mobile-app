@@ -5,8 +5,8 @@ versionCode 9는 네이티브 라이브러리 5개를 제거했고 R8 코드 축
 versionCode 8의 수정 사항(외부 링크, 하단 여백, guest id)도 아직 실기기로 확인하지 않았다면 이번에 같이 본다.
 
 - 대상 파일: `android/app/build/outputs/bundle/release/app-release.aab` (versionCode 9, 약 21MB)
-- 변경 내역: [APP_IMPROVEMENTS.md](./APP_IMPROVEMENTS.md)
-- 설치 방법 상세: [ANDROID_RELEASE_APK.md](./ANDROID_RELEASE_APK.md#로컬에서-aab-설치해보기-실기기-회귀-테스트)
+- 변경 내역: [앱 개선 및 버전 이력](../releases/improvements.md)
+- 설치 방법 상세: [Android 배포 문서](../releases/android.md#로컬에서-aab-설치해보기-실기기-회귀-테스트)
 
 > ⚠️ 이 AAB는 **운영 웹(`voda.ppiyakworld.com`)** 에 붙는다. 상담 등 테스트 중의 행동이 운영 데이터로 남으니,
 > 테스트 계정으로 진행한다.
@@ -119,8 +119,8 @@ adb logcat -c && adb logcat '*:E' | grep -iE "FATAL|AndroidRuntime|ReactNativeJS
 
 1. Play Console → **비공개 테스트(closed)** 트랙 → 새 버전 → `app-release.aab` 업로드
    (내부 테스트 트랙은 프로덕션 신청 조건인 14일 테스트에 포함되지 않는다)
-2. 출시 노트: [APP_IMPROVEMENTS.md](./APP_IMPROVEMENTS.md)의 "versionCode 9 — 버전 설명" 문구를 붙여 넣는다
-3. `APP_IMPROVEMENTS.md`의 빌드별 변경 내역 표에서 9의 상태를 "배포됨"으로 바꾼다
+2. 출시 노트: [앱 개선 및 버전 이력](../releases/improvements.md)의 "versionCode 9 — 버전 설명" 문구를 붙여 넣는다
+3. `docs/releases/improvements.md`의 빌드별 변경 내역 표에서 9의 상태를 "배포됨"으로 바꾼다
 4. 테스트로 지운 Play 버전은, 배포 후 Play 스토어에서 다시 설치하면 된다
 
 ## 문제가 생기면

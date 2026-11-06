@@ -7,7 +7,7 @@
 
 > **환경 (개발/운영)**: 내부 테스트 APK 는 개발 웹(`voda-dev.ppiyakworld.com`), Play Store AAB 는
 > 운영 웹(`voda.ppiyakworld.com`)을 바라본다. `npm run build:apk:dev` / `npm run build:aab:prod`
-> 스크립트가 이걸 처리한다. 자세한 규칙과 딥링크는 [DEEP_LINKING.md](./DEEP_LINKING.md) 참고.
+> 스크립트가 이걸 처리한다. 자세한 규칙과 딥링크는 [딥링크 개요](../deep-linking/README.md) 참고.
 
 ## Prerequisites
 
@@ -31,7 +31,7 @@ npm run build:apk:dev
 
 Gradle 을 직접 부를 때는 **개발 APK 라도 오리진을 명시해야 한다.** 환경변수 없이
 `./gradlew assembleRelease` 만 돌리면 릴리스 빌드라서 운영 웹(`voda.ppiyakworld.com`)에 붙는다
-(결정 규칙은 [DEEP_LINKING.md](./DEEP_LINKING.md) 참고).
+(결정 규칙은 [딥링크 개요](../deep-linking/README.md) 참고).
 
 ```bash
 cd android
@@ -169,7 +169,7 @@ android/app/build/outputs/bundle/release/app-release.aab
 
 업로드할 때마다 `android/app/build.gradle` 의 `versionCode` 를 이전 업로드보다 크게
 올려야 한다 (현재 `versionCode 9`). `android/` 는 git 대상이 아니므로 `app.json` 의
-`android.versionCode` 도 **같이** 올린다. 버전별 변경 내역은 [APP_IMPROVEMENTS.md](./APP_IMPROVEMENTS.md) 참고. 같은 `versionCode` 는 Play Console 이 거부한다.
+`android.versionCode` 도 **같이** 올린다. 버전별 변경 내역은 [앱 개선 및 버전 이력](./improvements.md) 참고. 같은 `versionCode` 는 Play Console 이 거부한다.
 `versionName` ("1.0.0") 은 사용자에게 보이는 문자열이라 필수는 아니지만 같이 올리는 게 보통이다.
 
 ### 업로드

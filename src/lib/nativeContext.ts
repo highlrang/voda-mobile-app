@@ -9,7 +9,7 @@ import { getGuestId } from './guestId';
 // initial document request, not the fetch/XHR/streaming calls the page makes for
 // the consultation/trial APIs — those are the ones the server actually gates on.
 //
-// Contract mirrored by the web front-end (see NATIVE_DEVICE_IDENTITY.md):
+// Contract mirrored by the web front-end (see docs/architecture/native-device-identity.md):
 //   window.__VODA_NATIVE__ = {
 //     platform:   'ios' | 'android',
 //     deviceId:   string | null,   // iOS: IDFV, Android: Settings.Secure.ANDROID_ID

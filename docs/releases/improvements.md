@@ -50,7 +50,7 @@
   (`GestureHandlerRootView`는 일반 `View`로 교체, babel reanimated 플러그인과 ProGuard keep 규칙 제거)
 - 8. 쓰지 않는 `isRefreshing` 상태와 "새로고침 중..." 문구 제거
 - 빌드 속도: ARM 두 종류만 빌드, `--parallel`, 힙 4GB, `clean` 대신 JS 번들만 지움 (`package.json` 스크립트)
-- **업로드 전 실기기 회귀 테스트 필수** → [V9_DEVICE_TEST.md](./V9_DEVICE_TEST.md) (네이티브 모듈 제거 + R8): 앱 실행, 웹뷰 로드, 회전,
+- **업로드 전 실기기 회귀 테스트 필수** → [v9 실기기 테스트 기록](../archive/v9-device-test.md) (네이티브 모듈 제거 + R8): 앱 실행, 웹뷰 로드, 회전,
   뒤로 가기, 상담 결과 이미지 저장, 딥링크(`voda://auth/...`), 외부 링크(`tel:`, 카카오)
 
 ### versionCode 10 — 버전 설명(출시 노트)
