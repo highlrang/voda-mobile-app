@@ -7,7 +7,7 @@
 
 > **환경 (개발/운영)**: 내부 테스트 APK 는 개발 웹(`voda-dev.ppiyakworld.com`), Play Store AAB 는
 > 운영 웹(`voda.ppiyakworld.com`)을 바라본다. `npm run build:apk:dev` / `npm run build:aab:prod`
-> 스크립트가 이걸 처리한다. 자세한 규칙과 딥링크는 [DEEP_LINKING.md](./DEEP_LINKING.md) 참고.
+> 스크립트가 이걸 처리한다. 자세한 규칙과 딥링크는 [딥링크 개요](../deep-linking/README.md) 참고.
 
 ## Prerequisites
 
@@ -31,7 +31,7 @@ npm run build:apk:dev
 
 Gradle 을 직접 부를 때는 **개발 APK 라도 오리진을 명시해야 한다.** 환경변수 없이
 `./gradlew assembleRelease` 만 돌리면 릴리스 빌드라서 운영 웹(`voda.ppiyakworld.com`)에 붙는다
-(결정 규칙은 [DEEP_LINKING.md](./DEEP_LINKING.md) 참고).
+(결정 규칙은 [딥링크 개요](../deep-linking/README.md) 참고).
 
 ```bash
 cd android
@@ -66,7 +66,7 @@ adb install -r android/app/build/outputs/apk/release/app-release.apk
 ```bash
 keytool -genkeypair -v \
   -storetype PKCS12 \
-  -keystore voda-release-key.keystore \
+  -keystore voda-release-key.jks \
   -alias voda-key-alias \
   -keyalg RSA \
   -keysize 2048 \
@@ -80,7 +80,7 @@ keytool -genkeypair -v \
 `android/gradle.properties`에 아래 값을 추가한다.
 
 ```properties
-VODA_UPLOAD_STORE_FILE=voda-release-key.keystore
+VODA_UPLOAD_STORE_FILE=voda-release-key.jks
 VODA_UPLOAD_KEY_ALIAS=voda-key-alias
 VODA_UPLOAD_STORE_PASSWORD=your_store_password
 VODA_UPLOAD_KEY_PASSWORD=your_key_password
@@ -169,7 +169,7 @@ android/app/build/outputs/bundle/release/app-release.aab
 
 업로드할 때마다 `android/app/build.gradle` 의 `versionCode` 를 이전 업로드보다 크게
 올려야 한다 (현재 `versionCode 9`). `android/` 는 git 대상이 아니므로 `app.json` 의
-`android.versionCode` 도 **같이** 올린다. 버전별 변경 내역은 [APP_IMPROVEMENTS.md](./APP_IMPROVEMENTS.md) 참고. 같은 `versionCode` 는 Play Console 이 거부한다.
+`android.versionCode` 도 **같이** 올린다. 버전별 변경 내역은 [앱 개선 및 버전 이력](./improvements.md) 참고. 같은 `versionCode` 는 Play Console 이 거부한다.
 `versionName` ("1.0.0") 은 사용자에게 보이는 문자열이라 필수는 아니지만 같이 올리는 게 보통이다.
 
 ### 업로드
@@ -205,13 +205,31 @@ bundletool build-apks \
   --bundle=app/build/outputs/bundle/release/app-release.aab \
   --output=app-release.apks \
   --connected-device \
-  --ks=app/voda-release-key.keystore \
+  --ks=app/voda-release-key.jks \
   --ks-key-alias=voda-key-alias
 bundletool install-apks --apks=app-release.apks
 ```
 
 Play Console 의 **내부 앱 공유**(Internal app sharing)에 AAB 를 올리면, 심사 없이 설치 링크가 바로 나온다.
 USB 연결 없이 다른 테스터 폰에 깔 때 편하다.
+
+## 백업 (git에 없는 파일)
+
+업로드 키, 버전별 매핑 파일, 손으로 고친 `android/` 설정은 git에 올라가지 않는다.
+새 버전을 출시할 때마다 iCloud Drive로 백업한다.
+
+```bash
+sh scripts/backup-release.sh
+```
+
+- 위치: **iCloud Drive → `Voda-release-backup/`**
+  (`~/Library/Mobile Documents/com~apple~CloudDocs/Voda-release-backup/`)
+- 내용: `voda-release-key.jks`(업로드 키), `release-artifacts/`(버전별 R8 mapping·JS source map, v9 AAB),
+  `native-config/`(서명 설정이 들어간 `build.gradle`, `gradle.properties`, `proguard-rules.pro`, `AndroidManifest.xml`),
+  복구 방법을 적은 `README.md`
+- **비밀번호는 백업에 없다.** macOS 암호 앱에 "Voda Play 업로드 키" 항목으로 보관한다
+  (`VODA_UPLOAD_STORE_PASSWORD`, `VODA_UPLOAD_KEY_PASSWORD`).
+- 처음 백업: 2026-10-28 (v9 1.0.0, v10 1.0.1)
 
 ## 빌드 속도
 

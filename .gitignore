@@ -31,3 +31,6 @@ pnpm-debug.log*
 .DS_Store
 .vscode/
 .idea/
+
+# Per-version R8 mapping / JS source maps (scripts/archive-release-artifacts.sh)
+release-artifacts/

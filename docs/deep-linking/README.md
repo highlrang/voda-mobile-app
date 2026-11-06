@@ -20,13 +20,13 @@
 
 > 환경변수를 바꾼 뒤 빌드가 이전 값을 물고 있으면 `npx expo start --clear` 로 Metro 캐시를 비운다.
 > `build:apk:dev` / `build:aab:prod` 스크립트는 빌드 전에 JS 번들 산출물을 지워서, Gradle 이 이전
-> 오리진이 박힌 번들을 재사용하지 않게 한다 ([ANDROID_RELEASE_APK.md](./ANDROID_RELEASE_APK.md#빌드-속도) 참고).
+> 오리진이 박힌 번들을 재사용하지 않게 한다 ([Android 배포 문서](../releases/android.md#빌드-속도) 참고).
 
 ## 딥링크 URL
 
 앱은 아래 딥링크를 받아 현재 환경의 WebView 오리진 뒤에 **경로 + 쿼리스트링 + 해시를 그대로**
-붙여서 웹 페이지를 연다. `voda://auth/` 로 시작하는 링크만 허용된다 (`App.tsx` 의
-`DEEP_LINK_ALLOWED_PATH_PREFIXES`).
+붙여서 웹 페이지를 연다. `voda://auth/` 로 시작하는 링크와 홈(`voda://`, `voda://home`)만 허용된다 (`App.tsx` 의
+`DEEP_LINK_ALLOWED_PATH_PREFIXES`, `DEEP_LINK_ALLOWED_EXACT_PATHS`).
 
 | 용도 | 딥링크 URL | 열리는 웹 주소 (개발 예시) |
 | --- | --- | --- |
@@ -83,3 +83,7 @@ password-reset-deep-link-url: voda://auth/password-reset
 - `getWebViewUrlFromDeepLink()` — 딥링크를 `${WEBVIEW_ORIGIN}<path><query><hash>` 로 변환
 - 변환된 URL 로 WebView 를 리마운트 (`webViewKey` 증가)
 - `lastHandledDeepLinkRef` 로 동일 링크 중복 처리 방지
+
+## 광고 딥링크
+
+Meta 광고 랜딩용 딥링크 계획은 [광고 딥링크](../todo/ad-deep-linking.md) 참고.

@@ -9,18 +9,20 @@ import { getGuestId } from './guestId';
 // initial document request, not the fetch/XHR/streaming calls the page makes for
 // the consultation/trial APIs — those are the ones the server actually gates on.
 //
-// Contract mirrored by the web front-end (see NATIVE_DEVICE_IDENTITY.md):
+// Contract mirrored by the web front-end (see docs/architecture/native-device-identity.md):
 //   window.__VODA_NATIVE__ = {
 //     platform:   'ios' | 'android',
 //     deviceId:   string | null,   // iOS: IDFV, Android: Settings.Secure.ANDROID_ID
 //     guestId:    string,          // persisted UUID v4 (Keychain/Keystore)
-//     appVersion: string | null,
+//     appVersion: string | null,   // versionName, e.g. '1.0.1'
+//     appBuild:   string | null,   // versionCode / CFBundleVersion, e.g. '10'
 //   }
 export type NativeContext = {
   platform: 'ios' | 'android';
   deviceId: string | null;
   guestId: string;
   appVersion: string | null;
+  appBuild: string | null;
 };
 
 const NATIVE_PLATFORM: 'ios' | 'android' = Platform.OS === 'ios' ? 'ios' : 'android';
@@ -61,7 +63,19 @@ async function buildNativeContext(): Promise<NativeContext> {
     deviceId,
     guestId,
     appVersion: Application.nativeApplicationVersion ?? null,
+    appBuild: Application.nativeBuildVersion ?? null,
   };
+}
+
+// Headers for requests the native layer makes itself (the WebView's initial
+// document request, client-log reports). Empty values are omitted.
+export function nativeContextHeaders(context: NativeContext): Record<string, string> {
+  const headers: Record<string, string> = { 'X-Device-Platform': context.platform };
+  if (context.deviceId) headers['X-Device-Id'] = context.deviceId;
+  if (context.guestId) headers['X-Guest-Id'] = context.guestId;
+  if (context.appVersion) headers['X-App-Version'] = context.appVersion;
+  if (context.appBuild) headers['X-App-Build'] = context.appBuild;
+  return headers;
 }
 
 // Resolves once per app session and caches the result. Always resolves (never

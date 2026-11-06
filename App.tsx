@@ -23,19 +23,30 @@ import {
   ConsultationResultSnapshotPermissionError,
   parseConsultationResultSnapshotRequest,
 } from './src/lib/consultationResultSnapshot';
+import { AppErrorBoundary } from './src/AppErrorBoundary';
+import {
+  flushAppErrors,
+  getRouteFromUrl,
+  reportAppError,
+  setAppErrorRoute,
+} from './src/lib/appErrorReporter';
 import { clearGuestId } from './src/lib/guestId';
 import {
   getNativeContext,
+  nativeContextHeaders,
   resetNativeContextCache,
   type NativeContext,
 } from './src/lib/nativeContext';
 
-const DEVICE_PLATFORM_HEADER = 'X-Device-Platform';
-const DEVICE_ID_HEADER = 'X-Device-Id';
-const GUEST_ID_HEADER = 'X-Guest-Id';
+// Guest ID reset button: always in dev, and in release APKs built with
+// EXPO_PUBLIC_ENABLE_QA_TOOLS=true (build:apk:dev). Never set for the store AAB.
+const ENABLE_QA_TOOLS = __DEV__ || process.env.EXPO_PUBLIC_ENABLE_QA_TOOLS === 'true';
 
 const APP_USER_AGENT_SUFFIX = 'MY_APP';
 const LOADING_TIMEOUT_MS = 12000;
+// Extra space below the result panel in the saved image (iOS), so the panel's
+// bottom border isn't flush against the image edge.
+const SNAPSHOT_IOS_BOTTOM_MARGIN = 24;
 // Android floor for the bottom offset. Android WebView mostly reports
 // env(safe-area-inset-bottom) as 0, so under edge-to-edge (forced on Android 15+
 // for targetSdk 35+) the real nav-bar inset from useSafeAreaInsets() has to be
@@ -50,6 +61,11 @@ const UNIVERSAL_LINK_HOST = 'voda.ppiyakworld.com';
 //   voda://auth/verified?token=...             → ${WEBVIEW_ORIGIN}/auth/verified?token=...
 //   voda://auth/password-reset?resetToken=...  → ${WEBVIEW_ORIGIN}/password-reset?resetToken=...
 const DEEP_LINK_ALLOWED_PATH_PREFIXES = ['/auth/'];
+// 접두어가 아니라 정확히 일치해야 허용하는 경로. ('/' 를 접두어로 두면 모든 경로가 통과한다.)
+//   voda://  · voda://home  → ${WEBVIEW_ORIGIN}/ · /home  (광고 랜딩, docs/todo/ad-deep-linking.md)
+const DEEP_LINK_ALLOWED_EXACT_PATHS = ['/', '/home'];
+// 콜드 스타트 시 getInitialURL 과 'url' 이벤트로 같은 링크가 두 번 들어오는 것을 막는 시간.
+const DEEP_LINK_DEDUPE_WINDOW_MS = 2000;
 // 딥링크 경로와 웹 경로가 다른 경우의 매핑. 여기 없는 경로는 그대로 전달한다.
 // (웹의 비밀번호 재설정 페이지는 /auth 아래가 아니라 /password-reset 이다.)
 const DEEP_LINK_WEB_PATH_MAP: Record<string, string> = {
@@ -67,10 +83,16 @@ const DEEP_LINK_WEB_PATH_MAP: Record<string, string> = {
 function buildWebViewSafeAreaScript(topOffset: number, bottomOffset: number) {
   return `
   (function () {
-    var topOffset = ${topOffset};
-    var bottomOffset = ${bottomOffset};
+    // Kept on window (not closed over) so buildSafeAreaUpdateScript() can swap in
+    // new insets after rotation without the resize listeners below restoring the
+    // values from the initial load.
+    window.__VODA_SAFE_AREA__ = { top: ${topOffset}, bottom: ${bottomOffset} };
+    var topOffset = window.__VODA_SAFE_AREA__.top;
+    var bottomOffset = window.__VODA_SAFE_AREA__.bottom;
 
     function setViewportVars() {
+      var topOffset = window.__VODA_SAFE_AREA__.top;
+      var bottomOffset = window.__VODA_SAFE_AREA__.bottom;
       var viewport = window.visualViewport;
       var viewportHeight = viewport && viewport.height ? viewport.height : window.innerHeight;
       var viewportWidth = viewport && viewport.width ? viewport.width : window.innerWidth;
@@ -112,7 +134,7 @@ function buildWebViewSafeAreaScript(topOffset: number, bottomOffset: number) {
         'html { background: inherit; min-height: var(--native-webview-height); }',
         'body {',
         '  min-height: var(--native-webview-height);',
-        '  padding-top: ' + topOffset + 'px !important;',
+        '  padding-top: var(--native-webview-top-offset) !important;',
         '  padding-bottom: max(env(safe-area-inset-bottom), var(--native-webview-bottom-offset)) !important;',
         '  overscroll-behavior-y: none;',
         '}',
@@ -144,6 +166,7 @@ function buildWebViewSafeAreaScript(topOffset: number, bottomOffset: number) {
     installViewportMeta();
     installStyle();
     setViewportVars();
+    window.__VODA_SET_VIEWPORT_VARS__ = setViewportVars;
 
     window.addEventListener('resize', setViewportVars);
     window.addEventListener('orientationchange', function () {
@@ -160,11 +183,25 @@ function buildWebViewSafeAreaScript(topOffset: number, bottomOffset: number) {
 `;
 }
 
+// `injectedJavaScript` only runs on page load, so inset changes after that
+// (rotation, nav-bar mode switch) are pushed into the already-loaded page here.
+function buildSafeAreaUpdateScript(topOffset: number, bottomOffset: number) {
+  return `
+    (function () {
+      window.__VODA_SAFE_AREA__ = { top: ${topOffset}, bottom: ${bottomOffset} };
+      if (window.__VODA_SET_VIEWPORT_VARS__) {
+        window.__VODA_SET_VIEWPORT_VARS__();
+      }
+    })();
+    true;
+  `;
+}
+
 // Exposes the native device-identity context as a global before any page script
 // runs, so the web app's own request layer can read it and attach the identity
 // headers itself — the WebView's `source.headers` only covers the initial
 // document request, not the subsequent fetch/XHR/streaming calls the page makes
-// for the consultation/trial APIs. See NATIVE_DEVICE_IDENTITY.md for the contract.
+// for the consultation/trial APIs. See docs/architecture/native-device-identity.md for the contract.
 function buildNativeContextScript(nativeContext: NativeContext) {
   return `
     (function () {
@@ -173,6 +210,7 @@ function buildNativeContextScript(nativeContext: NativeContext) {
         deviceId: nativeContext.deviceId,
         guestId: nativeContext.guestId,
         appVersion: nativeContext.appVersion,
+        appBuild: nativeContext.appBuild,
       })};
     })();
     true;
@@ -252,9 +290,9 @@ async function openExternalUrl(url: string) {
 function normalizeDeepLinkPath(pathname: string) {
   const collapsed = pathname.replace(/\/{2,}/g, '/').replace(/\/+$/, '');
   const normalized = collapsed === '' ? '/' : collapsed;
-  const isAllowed = DEEP_LINK_ALLOWED_PATH_PREFIXES.some((prefix) =>
-    normalized.startsWith(prefix),
-  );
+  const isAllowed =
+    DEEP_LINK_ALLOWED_EXACT_PATHS.includes(normalized) ||
+    DEEP_LINK_ALLOWED_PATH_PREFIXES.some((prefix) => normalized.startsWith(prefix));
   if (!isAllowed) {
     return null;
   }
@@ -292,7 +330,9 @@ function getWebViewUrlFromDeepLink(url: string) {
 export default function App() {
   return (
     <SafeAreaProvider>
-      <AppContent />
+      <AppErrorBoundary>
+        <AppContent />
+      </AppErrorBoundary>
     </SafeAreaProvider>
   );
 }
@@ -308,7 +348,7 @@ function AppContent() {
   const [hasError, setHasError] = useState(false);
   const [webViewKey, setWebViewKey] = useState(0);
   const [webViewUrl, setWebViewUrl] = useState(WEBVIEW_URL);
-  const lastHandledDeepLinkRef = useRef<string | null>(null);
+  const lastHandledDeepLinkRef = useRef<{ url: string; at: number } | null>(null);
   // null = not resolved yet. getNativeContext() always resolves (falls back to a
   // context with guestId: '' on failure) so the WebView is never permanently
   // blocked from loading.
@@ -322,10 +362,15 @@ function AppContent() {
   // pixels — hides the sibling overlays (which live inside `container`, the
   // capture target) so they don't get baked into the saved image.
   const [isCapturingPixels, setIsCapturingPixels] = useState(false);
+  const webBottomOffset = getWebBottomOffset(insets.bottom);
 
   useEffect(() => {
     ScreenOrientation.unlockAsync().catch(() => {});
   }, []);
+
+  useEffect(() => {
+    webViewRef.current?.injectJavaScript(buildSafeAreaUpdateScript(insets.top, webBottomOffset));
+  }, [insets.top, webBottomOffset]);
 
   useEffect(() => {
     let isMounted = true;
@@ -340,6 +385,7 @@ function AppContent() {
             deviceId: null,
             guestId: '',
             appVersion: null,
+            appBuild: null,
           });
         }
       });
@@ -387,6 +433,7 @@ function AppContent() {
 
   const handleNavigationStateChange = useCallback((navState: WebViewNavigation) => {
     canGoBackRef.current = navState.canGoBack;
+    setAppErrorRoute(navState.url);
   }, []);
 
   const handleWebViewMessage = useCallback((event: WebViewMessageEvent) => {
@@ -401,7 +448,15 @@ function AppContent() {
     captureAndSaveConsultationResultSnapshot({
       viewRef: containerRef,
       webViewRef,
-      contentHeight: request.contentHeight,
+      // The web sends only the result panel's own height, but the capture starts at
+      // the page top, above which the body has `insets.top` padding (see
+      // buildWebViewSafeAreaScript) — so the panel's bottom (border + share footer)
+      // got cut off by that much. Add it back plus some breathing room. iOS only for
+      // now: Android's output was reported fine and isn't re-verified yet.
+      contentHeight:
+        Platform.OS === 'ios'
+          ? request.contentHeight + insets.top + SNAPSHOT_IOS_BOTTOM_MARGIN
+          : request.contentHeight,
       filename: request.filename,
       setCaptureHeight: setSnapshotCaptureHeight,
       setIsCapturingPixels,
@@ -422,7 +477,7 @@ function AppContent() {
         isSavingSnapshotRef.current = false;
         setIsSavingSnapshot(false);
       });
-  }, []);
+  }, [insets.top]);
 
   useEffect(
     () => () => {
@@ -451,28 +506,36 @@ function AppContent() {
 
   useEffect(() => {
     function openDeepLink(url: string) {
-      if (lastHandledDeepLinkRef.current === url) {
-        return;
-      }
-
       const nextWebViewUrl = getWebViewUrlFromDeepLink(url);
       if (!nextWebViewUrl) {
-        return;
+        return false;
       }
 
-      lastHandledDeepLinkRef.current = url;
       setHasError(false);
       setIsLoading(true);
       setWebViewUrl(nextWebViewUrl);
       setWebViewKey((key) => key + 1);
+      return true;
+    }
+
+    // 콜드 스타트 때 getInitialURL 과 'url' 이벤트가 같은 링크로 겹쳐 들어오는 경우만 막는다.
+    // 그 외에는 같은 링크(예: 같은 광고)를 다시 눌러도 매번 다시 연다.
+    function openDeepLinkOnce(url: string) {
+      const last = lastHandledDeepLinkRef.current;
+      if (last && last.url === url && Date.now() - last.at < DEEP_LINK_DEDUPE_WINDOW_MS) {
+        return;
+      }
+      if (openDeepLink(url)) {
+        lastHandledDeepLinkRef.current = { url, at: Date.now() };
+      }
     }
 
     Linking.getInitialURL().then((url) => {
-      if (url) openDeepLink(url);
+      if (url) openDeepLinkOnce(url);
     });
 
     const subscription = Linking.addEventListener('url', (event) => {
-      openDeepLink(event.url);
+      openDeepLinkOnce(event.url);
     });
 
     return () => subscription.remove();
@@ -485,6 +548,12 @@ function AppContent() {
     }
     setIsLoading(false);
   }, []);
+
+  // A page made it through, so the network is back — send what queued up offline.
+  const handleLoad = useCallback(() => {
+    finishLoading();
+    flushAppErrors();
+  }, [finishLoading]);
 
   const handleLoadStart = useCallback(() => {
     if (loadingTimeoutRef.current) {
@@ -513,6 +582,40 @@ function AppContent() {
     setIsLoading(false);
   }, []);
 
+  // Main-document load failure (offline, DNS, timeout, TLS…).
+  const handleLoadError = useCallback(
+    ({ nativeEvent }: { nativeEvent: { code: number; description: string; url: string } }) => {
+      reportAppError({
+        errorType: 'NETWORK_ERROR',
+        error: new Error(`WebView load failed: ${nativeEvent.description}`),
+        route: getRouteFromUrl(nativeEvent.url),
+        details: { code: nativeEvent.code },
+      });
+      handleError();
+    },
+    [handleError],
+  );
+
+  // Only fires for the main document (react-native-webview checks isForMainFrame).
+  // A 4xx is answered by the web app's own error page, which has its own
+  // navigation, so let it render (and isn't reported — it's an expected
+  // response); a 5xx is usually a gateway/server page with no way back, so
+  // report it and show the native retry screen.
+  const handleHttpError = useCallback(
+    ({ nativeEvent }: { nativeEvent: { statusCode: number; url: string } }) => {
+      if (nativeEvent.statusCode >= 500) {
+        reportAppError({
+          errorType: 'NETWORK_ERROR',
+          error: new Error(`WebView HTTP ${nativeEvent.statusCode}`),
+          route: getRouteFromUrl(nativeEvent.url),
+          details: { statusCode: nativeEvent.statusCode },
+        });
+        handleError();
+      }
+    },
+    [handleError],
+  );
+
   const renderError = () => (
     <View style={styles.errorContainer}>
       <Text style={styles.errorTitle}>페이지를 불러올 수 없습니다</Text>
@@ -540,8 +643,20 @@ function AppContent() {
           collapsable={false}
           style={
             snapshotCaptureHeight != null
-              ? [styles.container, { height: snapshotCaptureHeight }]
-              : styles.container
+              ? [
+                  styles.container,
+                  // iOS: `flex: 1` (flexShrink 1) clamps the container back to the
+                  // screen height, so the explicit height never takes effect and the
+                  // snapshot is just the visible screen. Drop flex while capturing.
+                  Platform.OS === 'ios' && { flex: 0, flexShrink: 0 },
+                  { height: snapshotCaptureHeight },
+                ]
+              : Platform.OS === 'ios'
+                ? // Restore every overridden prop with an explicit value instead of just
+                  // dropping it — a removed style prop was left stale on the native view,
+                  // keeping the container (and WebView viewport) at the capture height.
+                  [styles.container, { flex: 1, flexShrink: 1, height: 'auto' }]
+                : styles.container
           }
         >
           {hasError ? (
@@ -555,29 +670,18 @@ function AppContent() {
                 // Secondary channel: covers only the initial document request.
                 // The API calls are gated on the injected `window.__VODA_NATIVE__`
                 // global instead (see buildNativeContextScript).
-                headers: {
-                  [DEVICE_PLATFORM_HEADER]: nativeContext.platform,
-                  ...(nativeContext.deviceId
-                    ? { [DEVICE_ID_HEADER]: nativeContext.deviceId }
-                    : {}),
-                  ...(nativeContext.guestId
-                    ? { [GUEST_ID_HEADER]: nativeContext.guestId }
-                    : {}),
-                },
+                headers: nativeContextHeaders(nativeContext),
               }}
               style={styles.webView}
               applicationNameForUserAgent={APP_USER_AGENT_SUFFIX}
               injectedJavaScriptBeforeContentLoaded={buildNativeContextScript(nativeContext)}
-              injectedJavaScript={buildWebViewSafeAreaScript(
-                insets.top,
-                getWebBottomOffset(insets.bottom),
-              )}
+              injectedJavaScript={buildWebViewSafeAreaScript(insets.top, webBottomOffset)}
               onLoadStart={handleLoadStart}
-              onLoad={finishLoading}
+              onLoad={handleLoad}
               onLoadEnd={finishLoading}
               onLoadProgress={handleLoadProgress}
-              onError={handleError}
-              onHttpError={handleError}
+              onError={handleLoadError}
+              onHttpError={handleHttpError}
               onShouldStartLoadWithRequest={handleShouldStartLoadWithRequest}
               onNavigationStateChange={handleNavigationStateChange}
               onMessage={handleWebViewMessage}
@@ -608,7 +712,7 @@ function AppContent() {
             </View>
           )}
 
-          {__DEV__ && !isCapturingPixels && (
+          {ENABLE_QA_TOOLS && !isCapturingPixels && (
             <TouchableOpacity
               style={styles.debugResetButton}
               onPress={handleResetGuestId}

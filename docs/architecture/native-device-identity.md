@@ -20,6 +20,7 @@ window.__VODA_NATIVE__ = {
   deviceId:   string | null,       // 아래 필드 스펙
   guestId:    string,              // 항상 존재. 실패 시 '' (빈 문자열)
   appVersion: string | null,       // Application.nativeApplicationVersion, 예 '1.0.0'
+  appBuild:   string | null,       // Application.nativeBuildVersion, 예 '10' (v10부터)
 };
 ```
 
@@ -32,6 +33,7 @@ window.__VODA_NATIVE__ = {
 | `deviceId` (Android) | `string\|null` | `Application.getAndroidId()` = `Settings.Secure.ANDROID_ID` | 소문자 hex 16자, 하이픈 없음. `9774d56d682e549c` | (앱 서명키, 사용자, 기기) 고정. 같은 서명키 재설치엔 유지, 팩토리 리셋 시 변경. 일부 불량 단말은 전 기기 동일값 → 서버 과신 금지 |
 | `guestId` | `string` | 앱 생성 UUID v4, `expo-secure-store` 영속 | 소문자 UUID, 하이픈 4개. `3f2a…` | iOS: 앱 삭제·재설치에도 유지(Keychain). Android: 재설치 시 소실(Keystore) |
 | `appVersion` | `string\|null` | `Application.nativeApplicationVersion` | iOS `CFBundleShortVersionString` / Android `versionName`. `'1.0.0'` | — |
+| `appBuild` | `string\|null` | `Application.nativeBuildVersion` | iOS `CFBundleVersion` / Android `versionCode`. `'10'`. 웹은 `X-App-Build` 헤더로 보낸다 | v10부터. 이전 버전에는 필드 없음 |
 
 `deviceId` 가 `null` 인 경우: 조회 실패, 또는 IDFV 미할당(부팅 직후 등). → `X-Device-Id` 헤더 생략.
 `guestId` 가 `''` 인 경우: SecureStore 읽기 실패. → `X-Guest-Id` 헤더 생략.
@@ -88,8 +90,9 @@ axios/fetch 인터셉터에서:
 
 ## QA
 
-`__DEV__` 빌드에서만 우하단 "ID 초기화" 버튼 → guestId 삭제 후 재발급 + 웹뷰 리로드.
-릴리스 빌드 UI 에는 노출되지 않는다.
+우하단 "ID 초기화" 버튼 → guestId 삭제 후 재발급 + 웹뷰 리로드.
+`__DEV__` 빌드와 `EXPO_PUBLIC_ENABLE_QA_TOOLS=true`로 만든 내부 APK(`build:apk:dev`)에서만 보인다.
+스토어 AAB(`build:aab:prod`)에는 노출되지 않는다.
 
 ## 빌드
 
