@@ -9,7 +9,7 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": false,
-      "buildNumber": "2",
+      "buildNumber": "3",
       "bundleIdentifier": "com.ppiyakworld.voda",
       "associatedDomains": [
         "applinks:voda.ppiyakworld.com"

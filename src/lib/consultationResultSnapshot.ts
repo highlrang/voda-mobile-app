@@ -1,8 +1,7 @@
 import type { RefObject } from 'react';
 import type { View } from 'react-native';
 import * as MediaLibrary from 'expo-media-library';
-import { File, Paths } from 'expo-file-system';
-import { captureRef } from 'react-native-view-shot';
+import { captureRef, releaseCapture } from 'react-native-view-shot';
 import type WebView from 'react-native-webview';
 
 // Web asks the native side to snapshot the WebView itself instead of
@@ -48,15 +47,6 @@ export function parseConsultationResultSnapshotRequest(
   }
 
   return { requestId, filename, contentHeight };
-}
-
-// Strips any directory components and unsafe characters from the web-supplied
-// filename before it's used to build a local file path — the value crosses
-// the WebView bridge, so it can't be trusted as a bare path segment.
-function toSafeFilename(filename: string): string {
-  const base = filename.split(/[\\/]/).pop() || '';
-  const safe = base.replace(/[^a-zA-Z0-9._-]/g, '_');
-  return safe.toLowerCase().endsWith('.png') ? safe : `${safe || 'voda-consultation-result'}.png`;
 }
 
 // The WebView runs its own JS engine/event loop on a different thread (and
@@ -153,7 +143,6 @@ export async function captureAndSaveConsultationResultSnapshot({
   viewRef,
   webViewRef,
   contentHeight,
-  filename,
   setCaptureHeight,
   setIsCapturingPixels,
 }: {
@@ -171,7 +160,6 @@ export async function captureAndSaveConsultationResultSnapshot({
   viewRef: RefObject<View | null>;
   webViewRef: RefObject<WebView | null>;
   contentHeight: number;
-  filename: string;
   setCaptureHeight: (height: number | null) => void;
   // Since `viewRef` now points at a view that also contains sibling overlays
   // (loading/saving spinners, a dev-only button), this hides them for the
@@ -197,31 +185,34 @@ export async function captureAndSaveConsultationResultSnapshot({
     await wait(POST_SCROLL_RESET_SETTLE_MS);
 
     setIsCapturingPixels(true);
-    let base64: string;
+    let temporaryCaptureUri: string;
     try {
       // Let the overlay-hiding re-render actually commit before reading pixels.
       await wait(OVERLAY_HIDE_SETTLE_MS);
-      base64 = await captureRef(viewRef, { format: 'png', quality: 1, result: 'base64' });
+      // Keep the PNG native-side as a temporary file. Returning a full-page
+      // screenshot as Base64 duplicates the image in native memory, across the
+      // React Native bridge, and again as a JS string. Physical iOS devices can
+      // terminate the app under that transient memory spike before JS receives
+      // an error, especially for long consultation results.
+      temporaryCaptureUri = await captureRef(viewRef, {
+        format: 'png',
+        quality: 1,
+        result: 'tmpfile',
+      });
     } finally {
       setIsCapturingPixels(false);
     }
 
-    const file = new File(Paths.cache, toSafeFilename(filename));
-    if (file.exists) {
-      file.delete();
-    }
-    file.write(base64, { encoding: 'base64' });
-
-    const asset = await MediaLibrary.createAssetAsync(file.uri);
     try {
-      await addAssetToAlbum(asset, CONSULTATION_RESULT_SNAPSHOT_ALBUM);
-    } catch {
-      // Best-effort only — the asset is already saved to the library at this
-      // point, so a failure to file it under the "Voda" album isn't fatal.
-    }
-
-    if (file.exists) {
-      file.delete();
+      const asset = await MediaLibrary.createAssetAsync(temporaryCaptureUri);
+      try {
+        await addAssetToAlbum(asset, CONSULTATION_RESULT_SNAPSHOT_ALBUM);
+      } catch {
+        // Best-effort only — the asset is already saved to the library at this
+        // point, so a failure to file it under the "Voda" album isn't fatal.
+      }
+    } finally {
+      releaseCapture(temporaryCaptureUri);
     }
   } finally {
     setCaptureHeight(null);

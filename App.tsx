@@ -457,7 +457,6 @@ function AppContent() {
         Platform.OS === 'ios'
           ? request.contentHeight + insets.top + SNAPSHOT_IOS_BOTTOM_MARGIN
           : request.contentHeight,
-      filename: request.filename,
       setCaptureHeight: setSnapshotCaptureHeight,
       setIsCapturingPixels,
     })
