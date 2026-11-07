@@ -7,14 +7,16 @@ iOS 는 아래 주소의 **허락 파일**을 읽어서 "이 앱이 이 도메�
 https://voda.ppiyakworld.com/.well-known/apple-app-site-association
 ```
 
-## 현재 문제
+## 현재 상태
 
-웹 `nginx.conf` 가 모르는 주소를 전부 `index.html` 로 보내서(`try_files ... /index.html`),
-이 주소도 파일 대신 웹 첫 화면(HTML)이 나온다 → iOS 가 "허락 없음"으로 보고 링크를 브라우저로 연다.
+✅ 2026-11-06 운영 반영 및 실기기 검증 완료.
 
-## 할 일
+웹 `nginx.conf`의 SPA fallback과 별도로 AASA 파일을 JSON으로 서빙하도록 설정했다.
+운영 인증 메일의 `https://voda.ppiyakworld.com/auth/...` 링크가 iOS 앱으로 열리는 것을 확인했다.
 
-### 1. 파일 (웹 쪽에 요청함)
+## 적용된 설정
+
+### 1. 파일
 
 `fortune_web/public/.well-known/apple-app-site-association` (확장자 없음)
 
@@ -31,9 +33,9 @@ https://voda.ppiyakworld.com/.well-known/apple-app-site-association
 }
 ```
 
-### 2. nginx.conf (직접 적용)
+### 2. nginx.conf
 
-`location /` **위에** 블록 하나 추가. (로컬 `fortune_web/nginx.conf` 에는 이미 반영해 둠, 미커밋)
+`location /` **위에** 전용 응답 블록을 둔다.
 
 ```nginx
 server {
@@ -74,10 +76,12 @@ curl -i https://voda.ppiyakworld.com/.well-known/apple-app-site-association
 - `content-type: application/json`
 - 본문에 `U4YJHU8SYV.com.ppiyakworld.voda`
 
-반영 후 애플 쪽 캐시 갱신까지 최대 하루. 아이폰에서 앱을 지웠다 다시 설치하면 새로 확인한다.
+설정을 변경했다면 애플 쪽 캐시 갱신까지 시간이 걸릴 수 있다. 아이폰에서 앱을 지웠다 다시 설치하면 새로 확인한다.
 
 ## 안드로이드 (참고)
 
-`https://voda.ppiyakworld.com/.well-known/assetlinks.json` 도 같은 이유로 지금 HTML 이 나온다.
-Play Console → 설정 → 앱 서명의 **앱 서명 키 SHA-256 지문**이 있어야 파일을 만들 수 있다.
-`.json` 확장자라 nginx 는 기본 설정으로도 JSON 으로 내려간다 (파일만 있으면 됨).
+✅ 2026-11-07 운영 반영 및 내부 테스트 설치본 검증 완료.
+
+`https://voda.ppiyakworld.com/.well-known/assetlinks.json`은 클라우드 nginx가 직접 JSON으로 응답한다.
+Play Console의 **앱 서명 키 SHA-256 지문**을 사용하며, Google Digital Asset Links API 조회와
+메모 앱의 `/auth/verified` 링크 → Voda 앱 열림을 확인했다.

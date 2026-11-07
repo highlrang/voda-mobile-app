@@ -20,7 +20,7 @@
     },
     "android": {
       "package": "com.ppiyakworld.voda",
-      "versionCode": 10,
+      "versionCode": 11,
       "blockedPermissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.READ_MEDIA_IMAGES",

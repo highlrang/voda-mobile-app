@@ -30,6 +30,7 @@
 1. App Store Connect에서 `1.0.1 (4)` 심사 상태와 메시지를 확인한다.
 2. 승인되면 출시 방식에 따라 수동으로 출시하거나 자동 출시를 확인한다.
 3. 출시 후 App Store 설치·로그인·딥링크·이미지 저장을 최종 확인한다.
+4. 출시 검증이 끝나면 [광고 딥링크](./ad-deep-linking.md)의 iOS 적용·테스트를 진행한다.
 
 ## 시뮬레이터로 앱 보기
 
@@ -83,24 +84,25 @@
 
 ## 문제 5. 인증 메일 링크가 앱이 아니라 브라우저로 열림
 
-**쉽게 말하면**: 인증 메일의 `https://voda.ppiyakworld.com/auth/...` 링크를 앱으로 열려면, iOS·안드로이드가
-웹사이트의 정해진 주소에 있는 **허락 파일**을 확인한다. 지금은 그 주소에서 파일 대신 웹 첫 화면(HTML)이 나와서
-"허락 없음"으로 보고 브라우저로 연다. (`voda://` 링크는 상관없이 지금도 잘 열림)
+✅ iOS 수정 및 실기기 검증 완료 (11-06).
+
+인증 메일의 `https://voda.ppiyakworld.com/auth/...` 링크를 앱으로 열려면, iOS·안드로이드가
+웹사이트의 정해진 주소에 있는 **허락 파일**을 확인한다. iOS용 파일과 nginx 설정을 운영에 반영했고,
+인증 메일 링크가 앱으로 열리는 것을 확인했다. (`voda://` 링크도 정상 동작)
 
 | 할 일 | 담당 | 상태 |
 | --- | --- | --- |
-| 허락 파일 `public/.well-known/apple-app-site-association` | 웹 쪽 | 🔶 요청함 (11-04) |
-| `nginx.conf` 에 JSON 응답 블록 추가 | 직접 | ❌ 적용 예정 |
-| 안드로이드 `assetlinks.json` | 웹 쪽 + 지문 전달 | ❌ Play Console → 설정 → 앱 서명의 **앱 서명 키 SHA-256** 확인 필요 |
+| 허락 파일 `public/.well-known/apple-app-site-association` | 웹 쪽 | ✅ 운영 반영·검증 완료 (11-06) |
+| `nginx.conf` 에 JSON 응답 블록 추가 | 웹 쪽 | ✅ 운영 반영·검증 완료 (11-06) |
+| 안드로이드 `assetlinks.json` | 클라우드 nginx | ✅ 운영 반영·내부 테스트 설치본 확인 (11-07) |
 
 파일 내용, nginx 블록, `curl` 확인 방법: **[iOS 유니버설 링크 서버 설정](../deep-linking/ios-server.md)**.
 
-## 웹 쪽에 요청한 것 (11-04)
+## 웹 쪽 작업 상태
 
-1. 저장 이미지 하단 푸터에서 도메인 제거, 로고만 가운데 (`src/app/components/ConsultationShareFooter.tsx`).
-   지금 값 `vodada.ppiyakworld.com` 은 실제 도메인과 달라 오타로 보임.
-2. iOS 유니버설 링크 허락 파일 (`public/.well-known/apple-app-site-association`).
-3. (참고) 안드로이드 `assetlinks.json` 도 없음 — 지문은 앱 쪽에서 전달 예정.
+1. 저장 이미지 하단 푸터에서 도메인 제거, 로고만 가운데: 개발 반영 확인, 운영 배포 확인 필요.
+2. iOS 유니버설 링크 허락 파일: 운영 반영 및 실기기 검증 완료.
+3. Android `assetlinks.json`: 운영 nginx 직접 응답 및 내부 테스트 설치본 검증 완료.
 
 ## 이번에 바꾼 파일
 
@@ -123,10 +125,10 @@
 **팀 ID** 는 `app.json` 에 없다 → 필요하면 `ios.appleTeamId: "U4YJHU8SYV"` 추가 검토.
 빌드 번호는 `app.json` 의 `ios.buildNumber` 로 관리할 수도 있다.
 
-**웹 저장소 (`fortune_web`)** — 11-02 에 로컬에서 만들어 둔 것 (스테이징됨, 미커밋)
+**웹 저장소 (`fortune_web`)**
 
-- `public/.well-known/apple-app-site-association`, `nginx.conf` (안드로이드 `assetlinks.json` 블록도 추가돼 있음)
-- 웹 쪽 작업과 겹치면 정리 필요.
+- `public/.well-known/apple-app-site-association`, `nginx.conf`: 운영 반영 및 iOS 실기기 검증 완료.
+- Android `assetlinks.json`: 클라우드 nginx에 운영 반영 및 검증 완료.
 
 ## 참고: Xcode 로 Archive·업로드하는 방법
 

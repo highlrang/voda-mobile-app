@@ -4,12 +4,20 @@
 
 ## 진행 중
 
-- [iOS 출시](./ios-release.md) — TestFlight, 이미지 저장 문제, 유니버설 링크, App Store 배포
-- [Meta 광고 딥링크](./ad-deep-linking.md) — v11 테스트·출시와 웹 리다이렉트 페이지
+- [iOS 출시](./ios-release.md) — `1.0.1 (4)` 심사 제출 완료, 결과 대기 중
+- [Meta 광고 딥링크](./ad-deep-linking.md) — Android 검증 완료·v11 운영 심사 제출 예정, iOS 출시 뒤 통합 테스트
+
+## 현재 상태
+
+1. Android `assetlinks.json`, 인증 HTTPS 앱링크, 광고 `/go/home` 설치·미설치·재호출 검증 완료.
+2. Android v11 운영 심사 제출 예정.
+3. iOS `1.0.1 (4)` 심사 결과 대기 중.
+
+iOS 광고 딥링크의 App Store 이동과 앱 열기는 iOS 출시 후 최종 테스트한다.
 
 ## 다음 배포
 
-- [앱 개선 문서의 `다음 순서`](../releases/improvements.md#다음-순서) — Android 버전별 배포·검증 절차
+- [앱 개선 문서의 `다음 순서`](../releases/improvements.md#다음-순서) — Android v11 광고 딥링크 배포·검증 절차
 
 ## 상태 규칙
 

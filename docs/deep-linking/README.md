@@ -82,7 +82,7 @@ password-reset-deep-link-url: voda://auth/password-reset
 - `Linking.addEventListener('url', ...)` — 앱이 이미 실행 중일 때
 - `getWebViewUrlFromDeepLink()` — 딥링크를 `${WEBVIEW_ORIGIN}<path><query><hash>` 로 변환
 - 변환된 URL 로 WebView 를 리마운트 (`webViewKey` 증가)
-- `lastHandledDeepLinkRef` 로 동일 링크 중복 처리 방지
+- `lastHandledDeepLinkRef` 로 콜드 스타트 때 2초 안에 겹쳐 들어오는 동일 링크만 중복 처리 방지
 
 ## 광고 딥링크
 

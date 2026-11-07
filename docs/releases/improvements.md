@@ -19,18 +19,13 @@
 | **10** | 내부 테스트 완료 (1.0.1) | 6, 7, 9, 10 | 에러 수집, QA 도구, 에러 화면·회전 개선 |
 
 ### 다음 순서
-1. v9 프로덕션 검토 통과 → 게시 (관리형 게시: 데이터 보안 선언 수정과 함께)
-2. 게시 후 1~3일 Play Console → Android vitals에서 크래시율·ANR 확인
-3. `feat/native-device-identity`(v9 출시 코드)를 main에 머지, `v1.0.0` 태그
-4. v10 업로드 **전에** Play Console 데이터 보안 선언에 **앱 정보 및 성능 → 비정상 종료 로그, 진단**을 추가
-   (수집됨 · 공유 안 함 · 필수 · 목적: 앱 기능/분석). 개인정보처리방침에도 오류 정보 수집을 명시
-5. 서버 `POST /api/client-logs/app-error` 배포 확인 (운영·개발 모두)
-6. `feat/v10-stability`에서 `npm run build:aab:prod` → 내부 테스트 업로드 → Play에서 설치해 확인
-   - 빌드가 끝나면 `release-artifacts/1.0.1-10/`에 매핑 파일이 생긴다. 백업해 둔다 (gitignore 대상)
-   - 화면 회전: 가로/세로로 돌려도 상단 헤더가 상태 표시줄에, 하단 버튼이 내비게이션 바에 가려지지 않는지
-   - Guest ID 초기화 버튼(화면 오른쪽 아래 "ID 초기화")이 스토어 빌드에 **보이지 않는지**
-   - 비행기 모드로 앱 실행 → 다시 연결 → 서버 로그에 `CLIENT_APP_ERROR`(NETWORK_ERROR)가 남는지
-7. 이상 없으면 v10 프로덕션 출시 (이때부터 단계적 출시 사용)
+v9는 프로덕션 출시, v10은 내부 테스트 완료, v11은 광고 홈 딥링크 내부 테스트까지 완료했다.
+
+1. v11 운영 심사 제출 (단계적 출시 권장)
+2. 승인·출시 후 Play 설치본에서 `/auth/verified`, `/go/home` 최종 확인
+3. 출시 후 1~3일 Play Console → Android vitals에서 크래시율·ANR 확인
+
+세부 작업과 iOS 출시 후 순서는 [광고 딥링크 TODO](../todo/ad-deep-linking.md)를 따른다.
 
 ### versionCode 8 — 버전 설명(출시 노트)
 ```
